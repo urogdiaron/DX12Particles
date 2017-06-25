@@ -28,6 +28,7 @@
 #include <pix3.h>
 
 #include <string>
+#include <array>
 #include <vector>
 #include <fstream>
 #include <wrl.h>

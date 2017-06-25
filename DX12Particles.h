@@ -13,7 +13,6 @@
 
 #include "DXSample.h"
 #include "StepTimer.h"
-#include "FrameResource.h"
 #include "SimpleCamera.h"
 
 using namespace DirectX;
@@ -25,10 +24,10 @@ using namespace DirectX;
 // An example of this can be found in the class method: OnDestroy().
 using Microsoft::WRL::ComPtr;
 
-class D3D12Bundles : public DXSample
+class DX12Particles : public DXSample
 {
 public:
-	D3D12Bundles(UINT width, UINT height, std::wstring name);
+	DX12Particles(UINT width, UINT height, std::wstring name);
 
 	virtual void OnInit();
 	virtual void OnUpdate();
@@ -38,10 +37,18 @@ public:
 	virtual void OnKeyUp(UINT8 key);
 
 private:
-	static const UINT FrameCount = 3;
-	static const UINT CityRowCount = 10;
-	static const UINT CityColumnCount = 3;
-	static const bool UseBundles = true;
+	struct ParticleVertex
+	{
+		XMFLOAT4 color;
+	};
+
+	struct ParticleData
+	{
+		XMFLOAT4 pos;
+	};
+
+	static const int ParticleCount = 100;
+	static const int FrameCount = 2;
 
 	// Pipeline objects.
 	CD3DX12_VIEWPORT m_viewport;
@@ -49,34 +56,35 @@ private:
 	ComPtr<IDXGISwapChain3> m_swapChain;
 	ComPtr<ID3D12Device> m_device;
 	ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-	ComPtr<ID3D12Resource> m_depthStencil;
-	ComPtr<ID3D12CommandAllocator> m_commandAllocator;
-	ComPtr<ID3D12CommandQueue> m_commandQueue;
-	ComPtr<ID3D12RootSignature >m_rootSignature;
+
 	ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
 	ComPtr<ID3D12DescriptorHeap> m_cbvSrvHeap;
-	ComPtr<ID3D12DescriptorHeap> m_dsvHeap;
-	ComPtr<ID3D12DescriptorHeap> m_samplerHeap;
-	ComPtr<ID3D12PipelineState> m_pipelineState1;
-	ComPtr<ID3D12PipelineState> m_pipelineState2;
+
+	//Rendering
+	ComPtr<ID3D12CommandAllocator> m_commandAllocator;
+	ComPtr<ID3D12CommandQueue> m_commandQueue;
+	ComPtr<ID3D12RootSignature >m_rootSignature;	
+	ComPtr<ID3D12PipelineState> m_pipelineState;
 	ComPtr<ID3D12GraphicsCommandList> m_commandList;
 
+	//Compute
+	ComPtr<ID3D12CommandAllocator> m_commandAllocatorCompute;
+	ComPtr<ID3D12CommandQueue> m_commandQueueCompute;
+	ComPtr<ID3D12RootSignature >m_rootSignatureCompute;
+	ComPtr<ID3D12PipelineState> m_pipelineStateCompute;
+	ComPtr<ID3D12GraphicsCommandList> m_commandListCompute;
+
 	// App resources.
-	UINT m_numIndices;
+	// This is the buffer that can be read
+	int m_currentParticleBufferIndex = 0;
 	ComPtr<ID3D12Resource> m_vertexBuffer;
-	ComPtr<ID3D12Resource> m_indexBuffer;
-	ComPtr<ID3D12Resource> m_texture;
+	ComPtr<ID3D12Resource> m_vertexBufferUpload;
+	ComPtr<ID3D12Resource> m_particleBuffers[2];
 	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
-	D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
 	StepTimer m_timer;
 	UINT m_cbvSrvDescriptorSize;
 	UINT m_rtvDescriptorSize;
 	SimpleCamera m_camera;
-
-	// Frame resources.
-	std::vector<FrameResource*> m_frameResources;
-	FrameResource* m_pCurrentFrameResource;
-	UINT m_currentFrameResourceIndex;
 
 	// Synchronization objects.
 	UINT m_frameIndex;
@@ -87,6 +95,4 @@ private:
 
 	void LoadPipeline();
 	void LoadAssets();
-	void CreateFrameResources();
-	void PopulateCommandList(FrameResource* pFrameResource);
 };
