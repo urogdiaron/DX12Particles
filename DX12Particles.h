@@ -80,6 +80,7 @@ private:
 	ComPtr<ID3D12Resource> m_vertexBuffer;
 	ComPtr<ID3D12Resource> m_vertexBufferUpload;
 	ComPtr<ID3D12Resource> m_particleBuffers[2];
+	ComPtr<ID3D12Resource> m_particleBufferUpload;
 	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
 	StepTimer m_timer;
 	UINT m_cbvSrvDescriptorSize;

@@ -37,20 +37,13 @@ struct PSParticleDrawIn
 struct PosVelo
 {
 	float4 pos;
-	float4 velo;
 };
 
 StructuredBuffer<PosVelo> g_bufPosVelo;
 
-cbuffer cb0
-{
-	row_major float4x4 g_mWorldViewProj;
-	row_major float4x4 g_mInvView;
-};
-
 cbuffer cb1
 {
-	static float g_fParticleRad = 10.0f;
+	static float g_fParticleRad = 0.01f;
 };
 
 cbuffer cbImmutable
@@ -80,9 +73,7 @@ VSParticleDrawOut VSParticleDraw(VSParticleIn input)
 	VSParticleDrawOut output;
 	
 	output.pos = g_bufPosVelo[input.id].pos.xyz;
-	
-	float mag = g_bufPosVelo[input.id].velo.w / 9;
-	output.color = lerp(float4(1.0f, 0.1f, 0.1f, 1.0f), input.color, mag);
+	output.color = input.color;
 	
 	return output;
 }
@@ -100,8 +91,7 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
 	for (int i = 0; i < 4; i++)
 	{
 		float3 position = g_positions[i] * g_fParticleRad;
-		position = mul(position, (float3x3)g_mInvView) + input[0].pos;
-		output.pos = mul(float4(position,1.0), g_mWorldViewProj);
+		position += input[0].pos;
 
 		output.color = input[0].color;
 		output.tex = g_texcoords[i];

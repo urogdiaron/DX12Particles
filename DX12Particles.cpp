@@ -191,10 +191,32 @@ void DX12Particles::LoadAssets()
 		UINT compileFlags = 0;
 #endif
 
+		ComPtr<ID3DBlob> errorBlob = nullptr;
+
 		// @Incomplete: Precompile the shaders! See how to set up compile flags that way.
-		ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"ParticleDraw.hlsl").c_str(), nullptr, nullptr, "VSParticleDraw", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
-		ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"ParticleDraw.hlsl").c_str(), nullptr, nullptr, "GSParticleDraw", "gs_5_0", compileFlags, 0, &geometryShader, nullptr));
-		ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"ParticleDraw.hlsl").c_str(), nullptr, nullptr, "PSParticleDraw", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
+		if FAILED(D3DCompileFromFile(GetAssetFullPath(L"ParticleDraw.hlsl").c_str(), nullptr, nullptr, "VSParticleDraw", "vs_5_0", compileFlags, 0, &vertexShader, &errorBlob))
+		{
+			if (errorBlob)
+			{
+				OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+			}
+		}
+
+		if FAILED(D3DCompileFromFile(GetAssetFullPath(L"ParticleDraw.hlsl").c_str(), nullptr, nullptr, "GSParticleDraw", "gs_5_0", compileFlags, 0, &geometryShader, &errorBlob))
+		{
+			if (errorBlob)
+			{
+				OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+			}
+		}
+
+		if FAILED(D3DCompileFromFile(GetAssetFullPath(L"ParticleDraw.hlsl").c_str(), nullptr, nullptr, "PSParticleDraw", "ps_5_0", compileFlags, 0, &pixelShader, &errorBlob))
+		{
+			if (errorBlob)
+			{
+				OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+			}
+		}
 		
 		D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
 		{
@@ -219,7 +241,7 @@ void DX12Particles::LoadAssets()
 		psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
 		psoDesc.NumRenderTargets = 1;
 		psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-		psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+		psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 		psoDesc.SampleDesc.Count = 1;
 
 		ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
@@ -282,6 +304,64 @@ void DX12Particles::LoadAssets()
 		m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
 		m_vertexBufferView.SizeInBytes = bufferSize;
 		m_vertexBufferView.StrideInBytes = sizeof(ParticleVertex);
+	}
+
+	// Create a static particle buffer
+	{
+		const UINT rowCount = 10;
+		const UINT columnCount = ParticleCount / rowCount;
+		const float spacingX = 2.0f / columnCount;
+		const float spacingY = 2.0f / rowCount;
+
+
+		std::array<ParticleData, ParticleCount> particleData;
+		for(int i = 0; i < ParticleCount; i++)
+		{
+			particleData[i].pos = XMFLOAT4(-1.0f + (i % columnCount) * spacingX, -1.0f + (i / rowCount) * spacingY, 0.0f, 1.0f);
+		}
+
+		const UINT bufferSize = sizeof(ParticleData) * ParticleCount;
+
+		ThrowIfFailed(m_device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
+			D3D12_RESOURCE_STATE_COPY_DEST,
+			nullptr,
+			IID_PPV_ARGS(&m_particleBuffers[0])
+		));
+
+
+		ThrowIfFailed(m_device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&m_particleBufferUpload)
+		));
+
+		NAME_D3D12_OBJECT(m_vertexBuffer);
+
+
+		D3D12_SUBRESOURCE_DATA particleSubresourceData;
+		particleSubresourceData.pData = reinterpret_cast<void*>(particleData.data());
+		particleSubresourceData.SlicePitch = bufferSize;
+		particleSubresourceData.RowPitch = bufferSize;
+		UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[0].Get(), m_particleBufferUpload.Get(), 0, 0, 1, &particleSubresourceData);
+
+		// Create a shader resource view
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		srvDesc.Buffer.FirstElement = 0;
+		srvDesc.Buffer.NumElements = ParticleCount;
+		srvDesc.Buffer.StructureByteStride = sizeof(ParticleData);
+		srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+
+		CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 0, m_cbvSrvDescriptorSize);
+		m_device->CreateShaderResourceView(m_particleBuffers[0].Get(), &srvDesc, srvHandle);
 	}
 
 
@@ -358,11 +438,39 @@ void DX12Particles::OnUpdate()
 // Render the scene.
 void DX12Particles::OnRender()
 {
-#if 0
 	PIXBeginEvent(m_commandQueue.Get(), 0, L"Render");
 
 	// Record all the commands we need to render the scene into the command list.
-	PopulateCommandList(m_pCurrentFrameResource);
+	ThrowIfFailed(m_commandAllocator->Reset());
+	ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
+
+	m_commandList->SetPipelineState(m_pipelineState.Get());
+	m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+	
+	ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
+	m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+
+	m_commandList->SetGraphicsRootDescriptorTable(0, m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart());
+
+	m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+	m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+	m_commandList->RSSetScissorRects(1, &m_scissorRect);
+
+	// Indicate that the back buffer will be used as a render target.
+	m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+	m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+	// Record commands.
+	const float clearColor[] = { 0.0f, 0.0f, 0.1f, 0.0f };
+	m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+
+	m_commandList->RSSetViewports(1, &m_viewport);
+	m_commandList->DrawInstanced(ParticleCount, 1, 0, 0);
+
+	m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));	
+	m_commandList->Close();
 
 	// Execute the command list.
 	ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
@@ -372,13 +480,19 @@ void DX12Particles::OnRender()
 
 	// Present and update the frame index for the next frame.
 	ThrowIfFailed(m_swapChain->Present(1, 0));
-	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
-
-	// Signal and increment the fence value.
-	m_pCurrentFrameResource->m_fenceValue = m_fenceValue;
-	ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValue));
+	
+	const UINT64 fence = m_fenceValue;
+	ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), fence));
 	m_fenceValue++;
-#endif
+
+	// Wait until the previous frame is finished.
+	if (m_fence->GetCompletedValue() < fence)
+	{
+		ThrowIfFailed(m_fence->SetEventOnCompletion(fence, m_fenceEvent));
+		WaitForSingleObject(m_fenceEvent, INFINITE);
+	}
+
+	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }
 
 void DX12Particles::OnDestroy()
