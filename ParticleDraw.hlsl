@@ -41,6 +41,11 @@ struct PosVelo
 
 StructuredBuffer<PosVelo> g_bufPosVelo;
 
+cbuffer perFrame : register(b0)
+{
+	float g_fAspectRatio;
+};
+
 cbuffer cb1
 {
 	static float g_fParticleRad = 0.01f;
@@ -92,7 +97,9 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
 	{
 		float3 position = g_positions[i] * g_fParticleRad;
 		position += input[0].pos;
+		position.x /= g_fAspectRatio;
 
+		output.pos = float4(position, 1);
 		output.color = input[0].color;
 		output.tex = g_texcoords[i];
 		SpriteStream.Append(output);
@@ -109,4 +116,10 @@ float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 	float intensity = 0.5f - length(float2(0.5f, 0.5f) - input.tex);
 	intensity = clamp(intensity, 0.0f, 0.5f) * 2.0f;
 	return float4(input.color.xyz, intensity);
+}
+
+
+[numthreads(1, 1, 1)]
+void CSParticleCompute(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
+{
 }

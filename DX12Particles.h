@@ -70,7 +70,6 @@ private:
 	//Compute
 	ComPtr<ID3D12CommandAllocator> m_commandAllocatorCompute;
 	ComPtr<ID3D12CommandQueue> m_commandQueueCompute;
-	ComPtr<ID3D12RootSignature >m_rootSignatureCompute;
 	ComPtr<ID3D12PipelineState> m_pipelineStateCompute;
 	ComPtr<ID3D12GraphicsCommandList> m_commandListCompute;
 
@@ -81,6 +80,7 @@ private:
 	ComPtr<ID3D12Resource> m_vertexBufferUpload;
 	ComPtr<ID3D12Resource> m_particleBuffers[2];
 	ComPtr<ID3D12Resource> m_particleBufferUpload;
+	ComPtr<ID3D12Resource> m_constantBufferGS;
 	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
 	StepTimer m_timer;
 	UINT m_cbvSrvDescriptorSize;
