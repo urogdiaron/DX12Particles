@@ -44,7 +44,7 @@ void DX12Particles::LoadPipeline()
 		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
 		{
 			debugController->EnableDebugLayer();
-
+			
 			// Enable additional debug layers.
 			dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
 		}
@@ -139,6 +139,10 @@ void DX12Particles::LoadPipeline()
 
 	ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocator)));
 	ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(&m_commandAllocatorCompute)));
+
+	NAME_D3D12_OBJECT(m_commandAllocator);
+	NAME_D3D12_OBJECT(m_commandAllocatorCompute);
+
 }
 
 // Load the sample assets.
@@ -163,12 +167,14 @@ void DX12Particles::LoadAssets()
 		}
 
 		CD3DX12_DESCRIPTOR_RANGE1 ranges[3];
-		ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-		ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+		ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+		ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
+		ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
 
-		CD3DX12_ROOT_PARAMETER1 rootParameters[2];
-		rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_VERTEX);
-		rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_GEOMETRY);
+		CD3DX12_ROOT_PARAMETER1 rootParameters[3];
+		rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+		rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
+		rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);
 
 		CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
 		rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
@@ -294,6 +300,7 @@ void DX12Particles::LoadAssets()
 
 	ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE, m_commandAllocatorCompute.Get(), nullptr, IID_PPV_ARGS(&m_commandListCompute)));
 	NAME_D3D12_OBJECT(m_commandListCompute);
+	m_commandListCompute->Close();
 
 	// Create render target views (RTVs).
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
@@ -553,6 +560,62 @@ void DX12Particles::OnUpdate()
 // Render the scene.
 void DX12Particles::OnRender()
 {
+	{
+		PIXBeginEvent(m_commandQueueCompute.Get(), 0, L"Compute");
+
+		ThrowIfFailed(m_commandAllocatorCompute->Reset());
+		ThrowIfFailed(m_commandListCompute->Reset(m_commandAllocatorCompute.Get(), m_pipelineStateCompute.Get()));
+
+		m_commandListCompute->SetPipelineState(m_pipelineStateCompute.Get());
+		m_commandListCompute->SetComputeRootSignature(m_rootSignature.Get());
+
+		ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
+		m_commandListCompute->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+
+		// The constant buffer view needs to be set even though we dont use it. The reason is that we specified it in the root signature.
+		m_commandListCompute->SetComputeRootDescriptorTable(0, m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart());
+
+		CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + m_frameIndex, m_cbvSrvDescriptorSize);
+		m_commandListCompute->SetComputeRootDescriptorTable(1, srvHandle);
+
+		CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 3 + (1 - m_frameIndex), m_cbvSrvDescriptorSize);
+		m_commandListCompute->SetComputeRootDescriptorTable(2, uavHandle);
+
+		m_commandListCompute->Dispatch(ParticleCount, 1, 1);
+
+		m_commandListCompute->ResourceBarrier(1,
+			&CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[m_frameIndex].Get(), 
+				D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, 
+				D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+
+		m_commandListCompute->ResourceBarrier(1,
+			&CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[1 - m_frameIndex].Get(),
+				D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+				D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+
+		m_commandListCompute->Close();
+
+		ID3D12CommandList* ppCommandLists[] = { m_commandListCompute.Get() };
+		m_commandQueueCompute->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+		{
+			// @TODO: This seems unnecessary to me, maybe waiting only on the GPU is enough
+			const UINT64 fence = m_fenceValue;
+			ThrowIfFailed(m_commandQueueCompute->Signal(m_fence.Get(), fence));
+			m_fenceValue++;
+
+			// Wait until the previous frame is finished.
+			if (m_fence->GetCompletedValue() < fence)
+			{
+				ThrowIfFailed(m_fence->SetEventOnCompletion(fence, m_fenceEvent));
+				WaitForSingleObject(m_fenceEvent, INFINITE);
+			}
+		}
+
+		PIXEndEvent(m_commandQueueCompute.Get());
+	}
+
+
 	PIXBeginEvent(m_commandQueue.Get(), 0, L"Render");
 
 	// Record all the commands we need to render the scene into the command list.
@@ -565,10 +628,14 @@ void DX12Particles::OnRender()
 	ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
 	m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
 
-	m_commandList->SetGraphicsRootDescriptorTable(1, m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart());
-
-	CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1, m_cbvSrvDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 0, m_cbvSrvDescriptorSize);
 	m_commandList->SetGraphicsRootDescriptorTable(0, cbvHandle);
+
+	m_commandList->SetGraphicsRootDescriptorTable(1, 
+		CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + (1 - m_frameIndex), m_cbvSrvDescriptorSize));
+
+	m_commandList->SetGraphicsRootDescriptorTable(2,
+		CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 3 + (1 - m_frameIndex), m_cbvSrvDescriptorSize));
 
 	m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
 	m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);

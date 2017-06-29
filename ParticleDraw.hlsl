@@ -39,7 +39,8 @@ struct PosVelo
 	float4 pos;
 };
 
-StructuredBuffer<PosVelo> g_bufPosVelo;
+StructuredBuffer<PosVelo> g_bufPosVelo		 : register(t0);	// SRV
+RWStructuredBuffer<PosVelo> g_bufPosVeloOut  : register(u0);	// UAV
 
 cbuffer perFrame : register(b0)
 {
@@ -122,4 +123,6 @@ float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 [numthreads(1, 1, 1)]
 void CSParticleCompute(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
+	g_bufPosVeloOut[DTid.x] = g_bufPosVelo[DTid.x];
+	g_bufPosVeloOut[DTid.x].pos.x += 0.001f;
 }

@@ -68,6 +68,7 @@ private:
 	ComPtr<ID3D12GraphicsCommandList> m_commandList;
 
 	//Compute
+	ComPtr<ID3D12RootSignature >m_rootSignatureCompute;
 	ComPtr<ID3D12CommandAllocator> m_commandAllocatorCompute;
 	ComPtr<ID3D12CommandQueue> m_commandQueueCompute;
 	ComPtr<ID3D12PipelineState> m_pipelineStateCompute;
