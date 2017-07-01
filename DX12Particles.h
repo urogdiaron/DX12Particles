@@ -31,7 +31,10 @@ public:
 
 	virtual void OnInit();
 	virtual void OnUpdate();
-	virtual void OnRender();
+    void RunComputeShader(int readableBufferIndex, int writableBufferIndex);
+    void WaitForCurrentFence(bool waitOnCpu);
+    void RenderParticles(int readableBufferIndex);
+    virtual void OnRender();
 	virtual void OnDestroy();
 	virtual void OnKeyDown(UINT8 key);
 	virtual void OnKeyUp(UINT8 key);
@@ -47,7 +50,7 @@ private:
 		XMFLOAT4 pos;
 	};
 
-	static const int ParticleCount = 100;
+	static const int ParticleCount = 100000;
 	static const int FrameCount = 2;
 
 	// Pipeline objects.
@@ -96,5 +99,7 @@ private:
 	UINT64 m_fenceValue;
 
 	void LoadPipeline();
-	void LoadAssets();
+    void CreateVertexBuffer();
+    void CreateParticleBuffers();
+    void LoadAssets();
 };

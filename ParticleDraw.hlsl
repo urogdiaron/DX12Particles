@@ -120,9 +120,9 @@ float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 }
 
 
-[numthreads(1, 1, 1)]
+[numthreads(1000, 1, 1)]
 void CSParticleCompute(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
 	g_bufPosVeloOut[DTid.x] = g_bufPosVelo[DTid.x];
-	g_bufPosVeloOut[DTid.x].pos.x += 0.001f;
+	g_bufPosVeloOut[DTid.x].pos.x += 0.00001f * g_bufPosVeloOut[DTid.x].pos.x;
 }
