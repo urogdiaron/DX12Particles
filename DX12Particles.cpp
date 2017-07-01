@@ -42,16 +42,16 @@ void DX12Particles::LoadPipeline()
 #if defined(_DEBUG)
     // Enable the debug layer (requires the Graphics Tools "optional feature").
     // NOTE: Enabling the debug layer after device creation will invalidate the active device.
-    //{
-    //	ComPtr<ID3D12Debug> debugController;
-    //	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
-    //	{
-    //		debugController->EnableDebugLayer();
-    //		
-    //		// Enable additional debug layers.
-    //		dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-    //	}
-    //}
+    {
+    	ComPtr<ID3D12Debug> debugController;
+    	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
+    	{
+    		debugController->EnableDebugLayer();
+    		
+    		// Enable additional debug layers.
+    		dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+    	}
+    }
 #endif
 
     ComPtr<IDXGIFactory4> factory;
@@ -117,6 +117,7 @@ void DX12Particles::LoadPipeline()
 
     ThrowIfFailed(swapChain.As(&m_swapChain));
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_swapChainEvent = m_swapChain->GetFrameLatencyWaitableObject();
 
     // Create descriptor heaps.
     {
@@ -130,7 +131,7 @@ void DX12Particles::LoadPipeline()
         // Describe and create a shader resource view (SRV) and constant 
         // buffer view (CBV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC cbvSrvHeapDesc = {};
-        cbvSrvHeapDesc.NumDescriptors = 5; // First there's a CBV, then there are 2 particle buffers. We need an SRV and a UAV for each.
+        cbvSrvHeapDesc.NumDescriptors = 1 + FrameCount * 3; //First a static CB, then for each frame an SRV, a UAV and a CBV
         cbvSrvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cbvSrvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         ThrowIfFailed(m_device->CreateDescriptorHeap(&cbvSrvHeapDesc, IID_PPV_ARGS(&m_cbvSrvHeap)));
@@ -301,15 +302,17 @@ void DX12Particles::LoadAssets()
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
 
-        CD3DX12_DESCRIPTOR_RANGE1 ranges[3];
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[4];
         ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
         ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
         ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
+        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
 
-        CD3DX12_ROOT_PARAMETER1 rootParameters[3];
+        CD3DX12_ROOT_PARAMETER1 rootParameters[4];
         rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
         rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
         rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);
+        rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
         rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
@@ -504,6 +507,32 @@ void DX12Particles::LoadAssets()
         m_device->CreateConstantBufferView(&cbvDesc, cbvHandle);
     }
 
+    
+    // @Note: This could be done in a single buffer using multiple views with different offsets
+    for(int i = 0; i < FrameCount; i++)
+    {
+        UINT bufferSize = 256;
+        ThrowIfFailed(m_device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_constantBufferPerFrame[i])
+        ));
+        NAME_D3D12_OBJECT_INDEXED(m_constantBufferPerFrame, i);
+
+        //CD3DX12_RANGE readRange(0, 0);		// We do not intend to read from this resource on the CPU.
+        //ThrowIfFailed(m_constantBufferPerFrame[i]->Map(0, &readRange, reinterpret_cast<void**>(&m_constantBufferPerFrameData[i])));
+        //ZeroMemory(&m_constantBufferPerFrameData[i], bufferSize);
+
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+        cbvDesc.BufferLocation = m_constantBufferPerFrame[i]->GetGPUVirtualAddress();
+        cbvDesc.SizeInBytes = bufferSize;
+        CD3DX12_CPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1 + FrameCount + FrameCount + i, m_cbvSrvDescriptorSize);
+        m_device->CreateConstantBufferView(&cbvDesc, cbvHandle);
+    }
+
 
     // Close the command list and execute it to begin the initial GPU setup.
     ThrowIfFailed(m_commandList->Close());
@@ -552,6 +581,9 @@ void DX12Particles::OnUpdate()
     }
 
     m_frameCounter++;
+
+   // float& fYellow = *reinterpret_cast<float*>(m_constantBufferPerFrameData[m_frameIndex]);
+   // fYellow = sinf((float)m_timer.GetTotalSeconds() * 3.14f) * 0.5f + 0.5f;
 #if 0
     // Get current GPU progress against submitted workload. Resources still scheduled 
     // for GPU execution cannot be modified or else undefined behavior will result.
@@ -595,6 +627,9 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + FrameCount + writableBufferIndex, m_cbvSrvDescriptorSize);
     m_commandListCompute->SetComputeRootDescriptorTable(2, uavHandle);
+
+    CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + FrameCount * 2 + readableBufferIndex, m_cbvSrvDescriptorSize);
+    m_commandListCompute->SetComputeRootDescriptorTable(3, cbvHandle);
 
     m_commandListCompute->Dispatch(ParticleCount / 1000, 1, 1);
 
@@ -668,6 +703,9 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     m_commandList->SetGraphicsRootDescriptorTable(2,
         CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + FrameCount, m_cbvSrvDescriptorSize));
 
+    m_commandList->SetGraphicsRootDescriptorTable(3,
+        CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + FrameCount * 2 + readableBufferIndex, m_cbvSrvDescriptorSize));
+
     m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
@@ -717,7 +755,9 @@ void DX12Particles::OnRender()
     // Present and update the frame index for the next frame.
     ThrowIfFailed(m_swapChain->Present(0, 0));
 
-    WaitForFence(true);
+   // WaitForFence(true);
+
+    WaitForSingleObjectEx(m_swapChainEvent, 100, FALSE);
 
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }

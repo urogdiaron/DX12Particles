@@ -47,6 +47,11 @@ cbuffer perFrame : register(b0)
 	float g_fAspectRatio;
 };
 
+cbuffer perFrame : register(b1)
+{
+    float g_fYellow;
+};
+
 cbuffer cb1
 {
 	static float g_fParticleRad = 0.01f;
@@ -80,6 +85,7 @@ VSParticleDrawOut VSParticleDraw(VSParticleIn input)
 	
 	output.pos = g_bufPosVelo[input.id].pos.xyz;
 	output.color = input.color;
+    output.color.g = g_fYellow;
 	
 	return output;
 }
