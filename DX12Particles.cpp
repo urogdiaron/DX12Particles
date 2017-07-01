@@ -220,16 +220,19 @@ void DX12Particles::CreateParticleBuffers()
     ));
     NAME_D3D12_OBJECT(m_particleBuffers[0]);
 
-    ThrowIfFailed(m_device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        nullptr,
-        IID_PPV_ARGS(&m_particleBuffers[1])
-    ));
-    NAME_D3D12_OBJECT(m_particleBuffers[1]);
-
+    // Create unininitialzed buffers for next frames
+    for (int i = 1; i < FrameCount; i++)
+    {
+        ThrowIfFailed(m_device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            nullptr,
+            IID_PPV_ARGS(&m_particleBuffers[i])
+        ));
+        NAME_D3D12_OBJECT_INDEXED(m_particleBuffers, i);
+    }
 
     ThrowIfFailed(m_device->CreateCommittedResource(
         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
@@ -249,35 +252,32 @@ void DX12Particles::CreateParticleBuffers()
     particleSubresourceData.RowPitch = bufferSize;
     UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[0].Get(), m_particleBufferUpload.Get(), 0, 0, 1, &particleSubresourceData);
 
-    // Create a shader resource view
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-    srvDesc.Buffer.FirstElement = 0;
-    srvDesc.Buffer.NumElements = ParticleCount;
-    srvDesc.Buffer.StructureByteStride = sizeof(ParticleData);
-    srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    for (int i = 0; i < FrameCount; i++)
+    {
+        // Create a shader resource view
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srvDesc.Buffer.FirstElement = 0;
+        srvDesc.Buffer.NumElements = ParticleCount;
+        srvDesc.Buffer.StructureByteStride = sizeof(ParticleData);
+        srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1, m_cbvSrvDescriptorSize);
-    m_device->CreateShaderResourceView(m_particleBuffers[0].Get(), &srvDesc, srvHandle);
+        CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1 + i, m_cbvSrvDescriptorSize);
+        m_device->CreateShaderResourceView(m_particleBuffers[i].Get(), &srvDesc, srvHandle);
 
-    srvHandle.Offset(1, m_cbvSrvDescriptorSize);
-    m_device->CreateShaderResourceView(m_particleBuffers[1].Get(), &srvDesc, srvHandle);
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+        uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uavDesc.Buffer.FirstElement = 0;
+        uavDesc.Buffer.NumElements = ParticleCount;
+        uavDesc.Buffer.StructureByteStride = sizeof(ParticleData);
+        uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
 
-    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-    uavDesc.Format = DXGI_FORMAT_UNKNOWN;
-    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-    uavDesc.Buffer.FirstElement = 0;
-    uavDesc.Buffer.NumElements = ParticleCount;
-    uavDesc.Buffer.StructureByteStride = sizeof(ParticleData);
-    uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
-
-    CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 3, m_cbvSrvDescriptorSize);
-    m_device->CreateUnorderedAccessView(m_particleBuffers[0].Get(), nullptr, &uavDesc, uavHandle);
-
-    uavHandle.Offset(1, m_cbvSrvDescriptorSize);
-    m_device->CreateUnorderedAccessView(m_particleBuffers[1].Get(), nullptr, &uavDesc, uavHandle);
+        CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1 + FrameCount + i, m_cbvSrvDescriptorSize);
+        m_device->CreateUnorderedAccessView(m_particleBuffers[i].Get(), nullptr, &uavDesc, uavHandle);
+    }
 }
 
 // Load the sample assets.
@@ -546,7 +546,7 @@ void DX12Particles::OnUpdate()
     {
         // Update window text with FPS value.
         wchar_t fps[64];
-        swprintf_s(fps, L"%ufps", m_timer.GetFramesPerSecond());
+        swprintf_s(fps, L"%ufps (%s)", m_timer.GetFramesPerSecond(), m_computeFirst ? L"Compute first" : L"Render first");
         SetCustomWindowText(fps);
         m_frameCounter = 0;
     }
@@ -593,7 +593,7 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
     CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + readableBufferIndex, m_cbvSrvDescriptorSize);
     m_commandListCompute->SetComputeRootDescriptorTable(1, srvHandle);
 
-    CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 3 + writableBufferIndex, m_cbvSrvDescriptorSize);
+    CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + FrameCount + writableBufferIndex, m_cbvSrvDescriptorSize);
     m_commandListCompute->SetComputeRootDescriptorTable(2, uavHandle);
 
     m_commandListCompute->Dispatch(ParticleCount / 1000, 1, 1);
@@ -614,7 +614,7 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
     m_commandQueueCompute->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 }
 
-void DX12Particles::WaitForCurrentFence(bool waitOnCpu)
+void DX12Particles::WaitForFence(bool waitOnCpu)
 {
     if (waitOnCpu)
     {
@@ -666,7 +666,7 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
         CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + readableBufferIndex, m_cbvSrvDescriptorSize));
 
     m_commandList->SetGraphicsRootDescriptorTable(2,
-        CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 3 + 0, m_cbvSrvDescriptorSize));
+        CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), 1 + FrameCount, m_cbvSrvDescriptorSize));
 
     m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
@@ -698,28 +698,26 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
 // Render the scene.
 void DX12Particles::OnRender()
 {
-    // @NOTE: Maybe we should do this in a different order
-    /*
-     * Right now we are starting a compute pass, waiting for it to complete and then using the results in the render pass
-     * After that we wait for the render pass and the present to complete before starting the next frame and reseting the allocators
-     *
-     * A better approach might be to start with the rendering pass, not wait for that to complete, start the compute pass and
-     * generate the next frame's data. It only READs the resource bound as an SRV to the render stage so it should work.
-     */
+    if (m_computeFirst)
+    {
+        RunComputeShader(m_frameIndex, (m_frameIndex + 1) % FrameCount);
 
-    RunComputeShader(m_frameIndex, 1 - m_frameIndex);
+        // @TODO: Here I can just wait on the GPU.
+        //        Investigate why on earth the version with the CPU waiting is faster than the GPU wait. 
+        //		  Even in debug where the CPU is even slower compared to the GPU.
+        WaitForFence(true);
 
-    // @TODO: Here I can just wait on the GPU.
-    //        Investigate why on earth the version with the CPU waiting is faster than the GPU wait. 
-    //		  Even in debug where the CPU is even more slow compared to the GPU.
-    WaitForCurrentFence(true);
-
-    RenderParticles(1 - m_frameIndex);
-
+        RenderParticles((m_frameIndex + 1) % FrameCount);
+    }
+    else
+    {
+        RenderParticles(m_frameIndex);
+        RunComputeShader(m_frameIndex, (m_frameIndex + 1) % FrameCount);
+    }
     // Present and update the frame index for the next frame.
     ThrowIfFailed(m_swapChain->Present(0, 0));
 
-    WaitForCurrentFence(true);
+    WaitForFence(true);
 
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }
@@ -748,6 +746,10 @@ void DX12Particles::OnDestroy()
 void DX12Particles::OnKeyDown(UINT8 key)
 {
     m_camera.OnKeyDown(key);
+    if(key == 'C')
+    {
+        m_computeFirst = !m_computeFirst;
+    }
 }
 
 void DX12Particles::OnKeyUp(UINT8 key)

@@ -32,7 +32,7 @@ public:
 	virtual void OnInit();
 	virtual void OnUpdate();
     void RunComputeShader(int readableBufferIndex, int writableBufferIndex);
-    void WaitForCurrentFence(bool waitOnCpu);
+    void WaitForFence(bool waitOnCpu);
     void RenderParticles(int readableBufferIndex);
     virtual void OnRender();
 	virtual void OnDestroy();
@@ -82,9 +82,10 @@ private:
 	int m_currentParticleBufferIndex = 0;
 	ComPtr<ID3D12Resource> m_vertexBuffer;
 	ComPtr<ID3D12Resource> m_vertexBufferUpload;
-	ComPtr<ID3D12Resource> m_particleBuffers[2];
+	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
 	ComPtr<ID3D12Resource> m_particleBufferUpload;
 	ComPtr<ID3D12Resource> m_constantBufferGS;
+    ComPtr<ID3D12Resource> m_constantBufferPerFrame[FrameCount];
 	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
 	StepTimer m_timer;
 	UINT m_cbvSrvDescriptorSize;
@@ -97,8 +98,9 @@ private:
 	HANDLE m_fenceEvent;
 	ComPtr<ID3D12Fence> m_fence;
 	UINT64 m_fenceValue;
+    bool m_computeFirst = false;
 
-	void LoadPipeline();
+    void LoadPipeline();
     void CreateVertexBuffer();
     void CreateParticleBuffers();
     void LoadAssets();
