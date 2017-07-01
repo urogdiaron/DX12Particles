@@ -32,7 +32,7 @@ public:
 	virtual void OnInit();
 	virtual void OnUpdate();
     void RunComputeShader(int readableBufferIndex, int writableBufferIndex);
-    void WaitForFence(bool waitOnCpu);
+    void WaitForFence(bool waitOnCpu, bool bCompute);
     void RenderParticles(int readableBufferIndex);
     virtual void OnRender();
 	virtual void OnDestroy();
@@ -101,9 +101,9 @@ private:
 	HANDLE m_fenceEvent;
 	ComPtr<ID3D12Fence> m_fence;
 	UINT64 m_fenceValue;
-    bool m_computeFirst = true;
-    HANDLE m_swapChainEvent;
-
+    bool m_computeFirst = false;
+    bool m_waitForComputeOnGPU = false;
+    
     void LoadPipeline();
     void CreateVertexBuffer();
     void CreateParticleBuffers();

@@ -117,7 +117,6 @@ void DX12Particles::LoadPipeline()
 
     ThrowIfFailed(swapChain.As(&m_swapChain));
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
-    m_swapChainEvent = m_swapChain->GetFrameLatencyWaitableObject();
 
     // Create descriptor heaps.
     {
@@ -575,7 +574,10 @@ void DX12Particles::OnUpdate()
     {
         // Update window text with FPS value.
         wchar_t fps[64];
-        swprintf_s(fps, L"%ufps (%s)", m_timer.GetFramesPerSecond(), m_computeFirst ? L"Compute first" : L"Render first");
+        swprintf_s(fps, L"%ufps (%s) (%s)", 
+            m_timer.GetFramesPerSecond(), 
+            m_computeFirst ? L"Compute first" : L"Render first",
+            m_waitForComputeOnGPU ? L"Waiting on GPU" : L"Waiting on CPU");
         SetCustomWindowText(fps);
         m_frameCounter = 0;
     }
@@ -647,37 +649,39 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
 
     ID3D12CommandList* ppCommandLists[] = { m_commandListCompute.Get() };
     m_commandQueueCompute->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+    PIXEndEvent(m_commandQueueCompute.Get());
 }
 
-void DX12Particles::WaitForFence(bool waitOnCpu)
+void DX12Particles::WaitForFence(bool waitOnCpu, bool bCompute)
 {
-    if (waitOnCpu)
-    {
-        const UINT64 fence = m_fenceValue;
-        ThrowIfFailed(m_commandQueueCompute->Signal(m_fence.Get(), fence));
-        m_fenceValue++;
+    const UINT64 fence = m_fenceValue;
+    m_fenceValue++;
 
-        // Wait until the previous frame is finished.
-        if (m_fence->GetCompletedValue() < fence)
+    ID3D12CommandQueue* pCommandQueue;
+    if (bCompute)
+    {
+        pCommandQueue = m_commandQueueCompute.Get();
+    }
+    else
+    {
+        pCommandQueue = m_commandQueue.Get();
+    }
+
+    // Wait until the previous frame is finished.
+    ThrowIfFailed(pCommandQueue->Signal(m_fence.Get(), fence));
+    if (m_fence->GetCompletedValue() < fence)
+    {
+        if (waitOnCpu)
         {
             ThrowIfFailed(m_fence->SetEventOnCompletion(fence, m_fenceEvent));
             WaitForSingleObject(m_fenceEvent, INFINITE);
         }
-    }
-    else
-    {
-        const UINT64 fence = m_fenceValue;
-        ThrowIfFailed(m_commandQueueCompute->Signal(m_fence.Get(), fence));
-        m_fenceValue++;
-
-        // Wait until the previous frame is finished.
-        if (m_fence->GetCompletedValue() < fence)
+        else
         {
-            ThrowIfFailed(m_commandQueueCompute->Wait(m_fence.Get(), fence));
+            ThrowIfFailed(pCommandQueue->Wait(m_fence.Get(), fence));
         }
     }
-
-    PIXEndEvent(m_commandQueueCompute.Get());
 }
 
 void DX12Particles::RenderParticles(int readableBufferIndex)
@@ -743,7 +747,7 @@ void DX12Particles::OnRender()
         // @TODO: Here I can just wait on the GPU.
         //        Investigate why on earth the version with the CPU waiting is faster than the GPU wait. 
         //		  Even in debug where the CPU is even slower compared to the GPU.
-        WaitForFence(true);
+        WaitForFence(!m_waitForComputeOnGPU, true);
 
         RenderParticles((m_frameIndex + 1) % FrameCount);
     }
@@ -751,13 +755,12 @@ void DX12Particles::OnRender()
     {
         RenderParticles(m_frameIndex);
         RunComputeShader(m_frameIndex, (m_frameIndex + 1) % FrameCount);
+    
+        WaitForFence(!m_waitForComputeOnGPU, true);
     }
     // Present and update the frame index for the next frame.
     ThrowIfFailed(m_swapChain->Present(0, 0));
-
-   // WaitForFence(true);
-
-    WaitForSingleObjectEx(m_swapChainEvent, 100, FALSE);
+    WaitForFence(true, false);
 
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }
@@ -789,6 +792,10 @@ void DX12Particles::OnKeyDown(UINT8 key)
     if(key == 'C')
     {
         m_computeFirst = !m_computeFirst;
+    }
+    else if(key == 'G')
+    {
+        m_waitForComputeOnGPU = !m_waitForComputeOnGPU;
     }
 }
 
