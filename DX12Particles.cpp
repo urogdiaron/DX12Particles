@@ -130,7 +130,7 @@ void DX12Particles::LoadPipeline()
         // Describe and create a shader resource view (SRV) and constant 
         // buffer view (CBV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC cbvSrvHeapDesc = {};
-        cbvSrvHeapDesc.NumDescriptors = 1 + FrameCount * 3; //First a static CB, then for each frame an SRV, a UAV and a CBV
+        cbvSrvHeapDesc.NumDescriptors = 1 + FrameCount * 3 + 1; //First a static CB, then for each frame an SRV, 2 UAVs and a CBV
         cbvSrvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cbvSrvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         ThrowIfFailed(m_device->CreateDescriptorHeap(&cbvSrvHeapDesc, IID_PPV_ARGS(&m_cbvSrvHeap)));
@@ -206,6 +206,7 @@ void DX12Particles::CreateParticleBuffers()
     for (int i = 0; i < ParticleCount; i++)
     {
         particleData[i].pos = XMFLOAT4(-1.0f + (i % columnCount) * spacingX, -1.0f + (i / columnCount) * spacingY, 0.0f, 1.0f);
+        particleData[i].alive = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
     const UINT bufferSize = sizeof(ParticleData) * ParticleCount;
@@ -254,6 +255,19 @@ void DX12Particles::CreateParticleBuffers()
 
     for (int i = 0; i < FrameCount; i++)
     {
+        //UINT64 counterBufferSize = sizeof(UINT);
+
+        //// Create the counter resource
+        //ThrowIfFailed(m_device->CreateCommittedResource(
+        //    &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+        //    D3D12_HEAP_FLAG_NONE,
+        //    &CD3DX12_RESOURCE_DESC::Buffer(counterBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+        //    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        //    nullptr,
+        //    IID_PPV_ARGS(&m_particleCounters[i])
+        //));
+        //NAME_D3D12_OBJECT_INDEXED(m_particleCounters, i);
+
         // Create a shader resource view
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -277,6 +291,16 @@ void DX12Particles::CreateParticleBuffers()
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), 1 + FrameCount + i, m_cbvSrvDescriptorSize);
         m_device->CreateUnorderedAccessView(m_particleBuffers[i].Get(), nullptr, &uavDesc, uavHandle);
+
+        //if (i == 1)
+        //{
+        //    uavDesc.Buffer.NumElements = 1;
+        //    uavDesc.Buffer.StructureByteStride = sizeof(UINT);
+        //    uavHandle.Offset(1, m_cbvSrvDescriptorSize);
+        //    m_device->CreateUnorderedAccessView(m_particleCounters[0].Get(), m_particleCounters[0].Get(), &uavDesc, uavHandle);
+        //}
+        //}
+
     }
 }
 
@@ -305,7 +329,7 @@ void DX12Particles::LoadAssets()
         ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
         ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
         ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
-        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
+        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // The second 1 there is the register number for the cb in shader
 
         CD3DX12_ROOT_PARAMETER1 rootParameters[4];
         rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
@@ -489,10 +513,17 @@ void DX12Particles::LoadAssets()
 
         NAME_D3D12_OBJECT(m_constantBufferGS);
         
-        float AspectRatio = (float)m_width / m_height;
+        struct ConstantBufferData
+        {
+            float m_AspectRatio;
+            int m_ParticleCount;
+        };
+        ConstantBufferData DataToUpload;
+        DataToUpload.m_AspectRatio = (float)m_width / m_height;
+        DataToUpload.m_ParticleCount = ParticleCount;
 
         D3D12_SUBRESOURCE_DATA constantBufferSubresourceData;
-        constantBufferSubresourceData.pData = reinterpret_cast<void*>(&AspectRatio);
+        constantBufferSubresourceData.pData = reinterpret_cast<void*>(&DataToUpload);
         constantBufferSubresourceData.SlicePitch = sizeof(float);
         constantBufferSubresourceData.RowPitch = sizeof(float);
         UpdateSubresources<1>(m_commandList.Get(), m_constantBufferGS.Get(), constantBufferUpload.Get(), 0, 0, 1, &constantBufferSubresourceData);
@@ -521,9 +552,9 @@ void DX12Particles::LoadAssets()
         ));
         NAME_D3D12_OBJECT_INDEXED(m_constantBufferPerFrame, i);
 
-        //CD3DX12_RANGE readRange(0, 0);		// We do not intend to read from this resource on the CPU.
-        //ThrowIfFailed(m_constantBufferPerFrame[i]->Map(0, &readRange, reinterpret_cast<void**>(&m_constantBufferPerFrameData[i])));
-        //ZeroMemory(&m_constantBufferPerFrameData[i], bufferSize);
+        CD3DX12_RANGE readRange(0, 0);		// We do not intend to read from this resource on the CPU.
+        ThrowIfFailed(m_constantBufferPerFrame[i]->Map(0, &readRange, reinterpret_cast<void**>(&m_constantBufferPerFrameData[i])));
+        ZeroMemory(m_constantBufferPerFrameData[i], bufferSize);
 
         D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
         cbvDesc.BufferLocation = m_constantBufferPerFrame[i]->GetGPUVirtualAddress();
@@ -584,28 +615,20 @@ void DX12Particles::OnUpdate()
 
     m_frameCounter++;
 
-   // float& fYellow = *reinterpret_cast<float*>(m_constantBufferPerFrameData[m_frameIndex]);
-   // fYellow = sinf((float)m_timer.GetTotalSeconds() * 3.14f) * 0.5f + 0.5f;
-#if 0
-    // Get current GPU progress against submitted workload. Resources still scheduled 
-    // for GPU execution cannot be modified or else undefined behavior will result.
-    const UINT64 lastCompletedFence = m_fence->GetCompletedValue();
-
-    // Move to the next frame resource.
-    m_currentFrameResourceIndex = (m_currentFrameResourceIndex + 1) % FrameCount;
-    m_pCurrentFrameResource = m_frameResources[m_currentFrameResourceIndex];
-
-    // Make sure that this frame resource isn't still in use by the GPU.
-    // If it is, wait for it to complete.
-    if (m_pCurrentFrameResource->m_fenceValue != 0 && m_pCurrentFrameResource->m_fenceValue > lastCompletedFence)
+    struct ConstBufferData
     {
-        ThrowIfFailed(m_fence->SetEventOnCompletion(m_pCurrentFrameResource->m_fenceValue, m_fenceEvent));
-        WaitForSingleObject(m_fenceEvent, INFINITE);
-    }
+        int m_EmitCount = 0;
+    };
 
-    m_camera.Update(static_cast<float>(m_timer.GetElapsedSeconds()));
-    m_pCurrentFrameResource->UpdateConstantBuffers(m_camera.GetViewMatrix(), m_camera.GetProjectionMatrix(0.8f, m_aspectRatio));
-#endif
+    ConstBufferData& DataToUpload = *reinterpret_cast<ConstBufferData*>(m_constantBufferPerFrameData[m_frameIndex]);
+    static float TimeSinceLastEmit = 0.0f;
+    const float TimeBetweenEmissions = 0.5f;
+    TimeSinceLastEmit += (float)m_timer.GetElapsedSeconds();
+    if(TimeSinceLastEmit > TimeBetweenEmissions)
+    {
+        TimeSinceLastEmit -= TimeBetweenEmissions;
+        DataToUpload.m_EmitCount = 1;
+    }
 }
 
 void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBufferIndex)

@@ -48,6 +48,7 @@ private:
 	struct ParticleData
 	{
 		XMFLOAT4 pos;
+        XMFLOAT4 alive;
 	};
 
 	static const int ParticleCount = 100000;
@@ -83,6 +84,7 @@ private:
 	ComPtr<ID3D12Resource> m_vertexBuffer;
 	ComPtr<ID3D12Resource> m_vertexBufferUpload;
 	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
+    ComPtr<ID3D12Resource> m_particleCounters[1];
 	ComPtr<ID3D12Resource> m_particleBufferUpload;
 	ComPtr<ID3D12Resource> m_constantBufferGS;
     

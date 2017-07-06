@@ -37,6 +37,7 @@ struct PSParticleDrawIn
 struct PosVelo
 {
 	float4 pos;
+    float4 alive;
 };
 
 StructuredBuffer<PosVelo> g_bufPosVelo		 : register(t0);	// SRV
@@ -45,11 +46,12 @@ RWStructuredBuffer<PosVelo> g_bufPosVeloOut  : register(u0);	// UAV
 cbuffer perFrame : register(b0)
 {
 	float g_fAspectRatio;
+    int g_nParticleCount;
 };
 
 cbuffer perFrame : register(b1)
 {
-    float g_fYellow;
+    int g_nEmitCount;
 };
 
 cbuffer cb1
@@ -83,9 +85,13 @@ VSParticleDrawOut VSParticleDraw(VSParticleIn input)
 {
 	VSParticleDrawOut output;
 	
+    if (g_bufPosVelo[input.id].alive.x <= 0)
+    {
+        discard;
+    }
+
 	output.pos = g_bufPosVelo[input.id].pos.xyz;
 	output.color = input.color;
-    output.color.g = g_fYellow;
 	
 	return output;
 }
