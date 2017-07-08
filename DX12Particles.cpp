@@ -511,55 +511,29 @@ void DX12Particles::LoadAssets()
         m_device->CreateConstantBufferView(&cbvDesc, cbvHandle);
     }
 
-    ComPtr<ID3D12Resource> counterUpload;
     {
-        struct CounterData
-        {
-            UINT m_counter;
-        };
-
-        UINT64 counterBufferSize = sizeof(CounterData);
+        UINT64 counterBufferSize = sizeof(UINT);
         // Create the counter resource
         ThrowIfFailed(m_device->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(counterBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             nullptr,
             IID_PPV_ARGS(&m_particleCounter)
         ));
         NAME_D3D12_OBJECT(m_particleCounter);
-
-        ThrowIfFailed(m_device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(counterBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&counterUpload)
-        ));
 
         D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
         uavDesc.Format = DXGI_FORMAT_UNKNOWN;
         uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uavDesc.Buffer.FirstElement = 0;
         uavDesc.Buffer.NumElements = 1;
-        uavDesc.Buffer.StructureByteStride = sizeof(CounterData);
+        uavDesc.Buffer.StructureByteStride = sizeof(UINT);
         uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
 
-        CD3DX12_CPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::CounterUAV, m_cbvSrvDescriptorSize);
-        m_device->CreateUnorderedAccessView(m_particleCounter.Get(), m_particleCounter.Get(), &uavDesc, cbvHandle);
-        
-        CounterData DataToUpload;
-        DataToUpload.m_counter = 0;
-
-        D3D12_SUBRESOURCE_DATA constantBufferSubresourceData;
-        constantBufferSubresourceData.pData = reinterpret_cast<void*>(&DataToUpload);
-        constantBufferSubresourceData.SlicePitch = sizeof(CounterData);
-        constantBufferSubresourceData.RowPitch = sizeof(CounterData);
-        UpdateSubresources<1>(m_commandList.Get(), m_particleCounter.Get(), counterUpload.Get(), 0, 0, 1, &constantBufferSubresourceData);
-        m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_particleCounter.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-
+        CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::CounterUAV, m_cbvSrvDescriptorSize);
+        m_device->CreateUnorderedAccessView(m_particleCounter.Get(), m_particleCounter.Get(), &uavDesc, uavHandle);
     }
 
     
