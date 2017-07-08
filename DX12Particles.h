@@ -51,6 +51,19 @@ private:
         XMFLOAT4 alive;
 	};
 
+    enum class DescOffset
+    {
+        StaticConstantBuffer,
+        ParticleSRV0,
+        ParticleSRV1,
+        ParticleUAV0,
+        ParticleUAV1,
+        PerFrameConstantBuffer0,
+        PerFrameConstantBuffer1,
+        CounterUAV,
+        Count
+    };
+
 	static const int ParticleCount = 100000;
 	static const int FrameCount = 2;
 
@@ -84,7 +97,7 @@ private:
 	ComPtr<ID3D12Resource> m_vertexBuffer;
 	ComPtr<ID3D12Resource> m_vertexBufferUpload;
 	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
-    ComPtr<ID3D12Resource> m_particleCounters[1];
+    ComPtr<ID3D12Resource> m_particleCounter;
 	ComPtr<ID3D12Resource> m_particleBufferUpload;
 	ComPtr<ID3D12Resource> m_constantBufferGS;
     
