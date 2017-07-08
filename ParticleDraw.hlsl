@@ -17,7 +17,7 @@ struct VSParticleIn
 
 struct VSParticleDrawOut
 {
-	float3 pos			: POSITION;
+	float4 pos			: POSITION;
 	float4 color		: COLOR;
 };
 
@@ -42,6 +42,7 @@ struct PosVelo
 
 StructuredBuffer<PosVelo> g_bufPosVelo		 : register(t0);	// SRV
 RWStructuredBuffer<PosVelo> g_bufPosVeloOut  : register(u0);	// UAV
+RWStructuredBuffer<uint> g_counter           : register(u1);	// UAV
 
 cbuffer perFrame : register(b0)
 {
@@ -84,13 +85,8 @@ cbuffer cbImmutable
 VSParticleDrawOut VSParticleDraw(VSParticleIn input)
 {
 	VSParticleDrawOut output;
-	
-    if (g_bufPosVelo[input.id].alive.x <= 0)
-    {
-        discard;
-    }
 
-	output.pos = g_bufPosVelo[input.id].pos.xyz;
+	output.pos = float4(g_bufPosVelo[input.id].pos.xyz, g_bufPosVelo[input.id].alive.x);
 	output.color = input.color;
 	
 	return output;
@@ -105,6 +101,9 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
 {
 	GSParticleDrawOut output;
 	
+    if (input[0].pos.w < 0.5)
+        return;
+
 	// Emit two new triangles.
 	for (int i = 0; i < 4; i++)
 	{
@@ -128,13 +127,20 @@ float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 {
 	float intensity = 0.5f - length(float2(0.5f, 0.5f) - input.tex);
 	intensity = clamp(intensity, 0.0f, 0.5f) * 2.0f;
-	return float4(input.color.xyz, intensity);
+	return float4(1, 1, 1, intensity);
 }
 
 
 [numthreads(1000, 1, 1)]
 void CSParticleCompute(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
-	g_bufPosVeloOut[DTid.x] = g_bufPosVelo[DTid.x];
-	g_bufPosVeloOut[DTid.x].pos.x += 0.00001f * g_bufPosVeloOut[DTid.x].pos.x;
+    g_bufPosVeloOut[DTid.x] = g_bufPosVelo[DTid.x];
+    g_bufPosVeloOut[DTid.x].pos.x += 0.0001f * g_bufPosVeloOut[DTid.x].alive.x;
+
+    if(DTid.x < g_nEmitCount)
+    {
+        uint nLastParticle = g_counter.IncrementCounter();
+        g_bufPosVeloOut[nLastParticle].pos = float4(0, 0, 0, 0);
+        g_bufPosVeloOut[nLastParticle].alive.x = 1.0;
+    }
 }
