@@ -690,7 +690,7 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
     CD3DX12_GPU_DESCRIPTOR_HANDLE counterHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::CounterUAV, m_cbvSrvDescriptorSize);
     m_commandListCompute->SetComputeRootDescriptorTable(4, counterHandle);
 
-    m_commandListCompute->Dispatch(ParticleCount / 1000, 1, 1);
+    m_commandListCompute->Dispatch((int)ceilf((float)ParticleCount / 1000), 1, 1);
 
     m_commandListCompute->ResourceBarrier(1,
         &CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[readableBufferIndex].Get(),

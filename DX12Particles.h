@@ -64,7 +64,7 @@ private:
         Count
     };
 
-	static const int ParticleCount = 100000;
+	static const int ParticleCount = 3;
 	static const int FrameCount = 2;
 
 	// Pipeline objects.

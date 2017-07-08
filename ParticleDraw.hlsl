@@ -139,7 +139,7 @@ void CSParticleCompute(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID,
 
     if(DTid.x < g_nEmitCount)
     {
-        uint nLastParticle = g_counter.IncrementCounter();
+        uint nLastParticle = g_counter.IncrementCounter() % g_nParticleCount;
         g_bufPosVeloOut[nLastParticle].pos = float4(0, 0, 0, 0);
         g_bufPosVeloOut[nLastParticle].alive.x = 1.0;
     }
