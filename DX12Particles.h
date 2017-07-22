@@ -48,6 +48,7 @@ private:
 	struct ParticleData
 	{
 		XMFLOAT4 pos;
+        XMFLOAT4 velocity;
         XMFLOAT4 alive;
 	};
 
@@ -64,7 +65,7 @@ private:
         Count
     };
 
-	static const int ParticleBufferSize = 2;
+	static const int ParticleBufferSize = 200;
 	static const int FrameCount = 2;
 
 	// Pipeline objects.
@@ -118,6 +119,7 @@ private:
 	UINT m_rtvDescriptorSize;
     UINT m_nEmitCountNextFrame = 0;
 	SimpleCamera m_camera;
+    std::mt19937 m_randomNumberEngine;
 
 	// Synchronization objects.
 	UINT m_frameIndex;

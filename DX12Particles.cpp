@@ -24,6 +24,8 @@ DX12Particles::DX12Particles(UINT width, UINT height, std::wstring name) :
     m_fenceValue(0),
     m_rtvDescriptorSize(0)
 {
+    std::random_device r;
+    m_randomNumberEngine.seed(std::seed_seq{ r(), r(), r(), r(), r() });
 }
 
 void DX12Particles::OnInit()
@@ -200,6 +202,7 @@ void DX12Particles::CreateParticleBuffers()
     for (int i = 0; i < ParticleBufferSize; i++)
     {
         particleData[i].pos = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+        particleData[i].velocity = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
         particleData[i].alive = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
@@ -659,10 +662,14 @@ void DX12Particles::OnUpdate()
     struct ConstBufferData
     {
         UINT m_EmitCount = 0;
+        UINT m_nRandomSeed = 0;
+        float m_fElapsedTime;
     };
 
     ConstBufferData& DataToUpload = *reinterpret_cast<ConstBufferData*>(m_constantBufferPerFrameData[m_frameIndex]);
     DataToUpload.m_EmitCount = m_nEmitCountNextFrame;
+    DataToUpload.m_fElapsedTime = (float)m_timer.GetElapsedSeconds();
+    DataToUpload.m_nRandomSeed = std::uniform_int_distribution<UINT>{}(m_randomNumberEngine);
     m_nEmitCountNextFrame = 0;
 }
 

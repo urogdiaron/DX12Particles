@@ -35,3 +35,5 @@
 #include <shellapi.h>
 
 #include <memory>
+#include <random>
+#include <iostream>

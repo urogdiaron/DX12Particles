@@ -36,7 +36,8 @@ struct PSParticleDrawIn
 
 struct PosVelo
 {
-	float4 pos;
+    float4 pos;
+    float4 velocity;
     float4 alive;
 };
 
@@ -53,6 +54,8 @@ cbuffer perFrame : register(b0)
 cbuffer perFrame : register(b1)
 {
     uint g_nEmitCount;
+    uint g_nRandomSeed;
+    float g_fElapsedTime;
 };
 
 cbuffer cb1
@@ -130,12 +133,24 @@ float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 	return float4(1, 1, 1, intensity);
 }
 
+float GetRandomNumber(inout uint rng_state)
+{
+    rng_state ^= (rng_state << 13);
+    rng_state ^= (rng_state >> 17);
+    rng_state ^= (rng_state << 5);
+    // Generate a random float in [0, 1)...
+    return float(rng_state) * (1.0 / 4294967296.0);
+}
+
 [numthreads(1000, 1, 1)]
 void CSGenerate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
     if (g_bufPosVelo[DTid.x].alive.x == 0.5)
     {
-        g_bufPosVeloOut[DTid.x].pos = float4(0, 0, 0, 0);
+        uint rndSeed = g_nRandomSeed + DTid.x;
+
+        g_bufPosVeloOut[DTid.x].pos = float4(0, 0, 0, 2 + GetRandomNumber(rndSeed) * 2);
+        g_bufPosVeloOut[DTid.x].velocity = float4(GetRandomNumber(rndSeed) * 2.0f - 1.0f, GetRandomNumber(rndSeed) * 2.0f - 1.0f, 0, 0);
         g_bufPosVeloOut[DTid.x].alive.x = 1;
     }
     else
@@ -145,7 +160,7 @@ void CSGenerate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 
 
     if(DTid.x < g_nEmitCount)
     {
-        int nPrevParticleCount = g_deadList.IncrementCounter();
+        uint nPrevParticleCount = g_deadList.IncrementCounter();
         if (nPrevParticleCount < g_nParticleBufferSize)
         {
             //There's still space left for a new particle. Mark one for creation
@@ -174,12 +189,12 @@ void CSUpdate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GT
     }
 
     g_bufPosVeloOut[DTid.x] = g_bufPosVelo[DTid.x];
-    float fNewX = g_bufPosVelo[DTid.x].pos.x + 0.0001f;
-    if (fNewX > 0.8f)
+    g_bufPosVeloOut[DTid.x].pos.w = g_bufPosVelo[DTid.x].pos.w - g_fElapsedTime;
+    g_bufPosVeloOut[DTid.x].pos.xyz = g_bufPosVelo[DTid.x].pos.xyz + g_bufPosVelo[DTid.x].velocity.xyz * g_fElapsedTime;
+    if (g_bufPosVeloOut[DTid.x].pos.w < 0)
     {
         g_bufPosVeloOut[DTid.x].alive.x = -1;
     }
-    g_bufPosVeloOut[DTid.x].pos.x = fNewX;
 }
 
 [numthreads(1000, 1, 1)]
