@@ -133,28 +133,30 @@ float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 [numthreads(1000, 1, 1)]
 void CSGenerate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
+    if (g_bufPosVelo[DTid.x].alive.x == 0.5)
+    {
+        g_bufPosVeloOut[DTid.x].pos = float4(0, 0, 0, 0);
+        g_bufPosVeloOut[DTid.x].alive.x = 1;
+    }
+    else
+    {
+        g_bufPosVeloOut[DTid.x].alive.x = g_bufPosVelo[DTid.x].alive.x;
+    }
+
     if(DTid.x < g_nEmitCount)
     {
-        uint nPrevParticleCount;
-        InterlockedAdd(g_deadList[g_nParticleBufferSize], 1, nPrevParticleCount);
+        int nPrevParticleCount = g_deadList.IncrementCounter();
         if (nPrevParticleCount < g_nParticleBufferSize)
         {
             //There's still space left for a new particle. Mark one for creation
-            uint nLastParticle = g_deadList[g_nParticleBufferSize - nPrevParticleCount - 1];
+            uint nLastParticle = g_deadList[g_nParticleBufferSize - nPrevParticleCount];
             g_bufPosVeloOut[nLastParticle].alive.x = 0.5;
         }
         else
         {
             uint nTmp;
-            InterlockedMin(g_deadList[g_nParticleBufferSize], g_nParticleBufferSize, nTmp);
+            InterlockedMin(g_deadList[0], g_nParticleBufferSize, nTmp);
         }
-
-    }
-
-    if (g_bufPosVelo[DTid.x].alive.x < 0.8 && g_bufPosVelo[DTid.x].alive.x > 0.3)
-    {
-        g_bufPosVeloOut[DTid.x].pos = float4(0, 0, 0, 0);
-        g_bufPosVeloOut[DTid.x].alive.x = 1;
     }
 }
 
@@ -166,7 +168,7 @@ void CSUpdate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GT
         return;
     }
 
-    if (g_bufPosVelo[DTid.x].alive.x < 0.8)
+    if (g_bufPosVelo[DTid.x].alive.x < 1)
     {
         return;
     }
@@ -187,15 +189,10 @@ void CSDestroy(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 G
     {
         return;
     }
-    if (g_bufPosVelo[DTid.x].alive.x < 0.3)
+    if (g_bufPosVelo[DTid.x].alive.x < 0)
     {
-        g_bufPosVeloOut[DTid.x].alive.x = g_bufPosVelo[DTid.x].alive.x;
-    }
-    if (g_bufPosVelo[DTid.x].alive.x < -0.56)
-    {
-        uint nPrevParticleCount;
-        InterlockedAdd(g_deadList[g_nParticleBufferSize], -1, nPrevParticleCount);
-        g_deadList[nPrevParticleCount - 1] = DTid.x;
+        int nPrevParticleCount = g_deadList.DecrementCounter();
+        g_deadList[nPrevParticleCount] = DTid.x;
         g_bufPosVeloOut[DTid.x].alive.x = 0;
         g_bufPosVeloOut[DTid.x].pos.xyz = float3(5,6,7);
     }

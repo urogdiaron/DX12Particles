@@ -116,6 +116,7 @@ private:
 	StepTimer m_timer;
 	UINT m_cbvSrvDescriptorSize;
 	UINT m_rtvDescriptorSize;
+    UINT m_nEmitCountNextFrame = 0;
 	SimpleCamera m_camera;
 
 	// Synchronization objects.

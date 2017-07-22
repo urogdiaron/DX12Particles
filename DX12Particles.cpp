@@ -546,8 +546,8 @@ void DX12Particles::LoadAssets()
 
         struct DeadListBufferData
         {
-            UINT m_availableIndices[ParticleBufferSize];
             UINT m_nParticleCount;
+            UINT m_availableIndices[ParticleBufferSize];
         };
 
         auto pDataToUpload = std::make_unique<DeadListBufferData>();
@@ -572,9 +572,10 @@ void DX12Particles::LoadAssets()
         uavDesc.Buffer.NumElements = ParticleBufferSize + 1;
         uavDesc.Buffer.StructureByteStride = sizeof(UINT);
         uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+        uavDesc.Buffer.CounterOffsetInBytes = 0;
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::DeadListUAV, m_cbvSrvDescriptorSize);
-        m_device->CreateUnorderedAccessView(m_deadListBuffer.Get(), nullptr, &uavDesc, uavHandle);
+        m_device->CreateUnorderedAccessView(m_deadListBuffer.Get(), m_deadListBuffer.Get(), &uavDesc, uavHandle);
     }
 
     
@@ -661,18 +662,8 @@ void DX12Particles::OnUpdate()
     };
 
     ConstBufferData& DataToUpload = *reinterpret_cast<ConstBufferData*>(m_constantBufferPerFrameData[m_frameIndex]);
-    static float TimeSinceLastEmit = 0.0f;
-    const float TimeBetweenEmissions = 1.0f;
-    TimeSinceLastEmit += (float)m_timer.GetElapsedSeconds();
-    if(TimeSinceLastEmit > TimeBetweenEmissions)
-    {
-        TimeSinceLastEmit -= TimeBetweenEmissions;
-        DataToUpload.m_EmitCount = 1;
-    }
-    else
-    {
-        DataToUpload.m_EmitCount = 0;
-    }
+    DataToUpload.m_EmitCount = m_nEmitCountNextFrame;
+    m_nEmitCountNextFrame = 0;
 }
 
 void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBufferIndex)
@@ -879,6 +870,10 @@ void DX12Particles::OnKeyDown(UINT8 key)
     else if(key == 'G')
     {
         m_waitForComputeOnGPU = !m_waitForComputeOnGPU;
+    }
+    else if(key == 'E')
+    {
+        m_nEmitCountNextFrame = 1;
     }
 }
 
