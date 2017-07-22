@@ -60,11 +60,11 @@ private:
         ParticleUAV1,
         PerFrameConstantBuffer0,
         PerFrameConstantBuffer1,
-        CounterUAV,
+        DeadListUAV,
         Count
     };
 
-	static const int ParticleCount = 3;
+	static const int ParticleBufferSize = 2;
 	static const int FrameCount = 2;
 
 	// Pipeline objects.
@@ -84,11 +84,19 @@ private:
 	ComPtr<ID3D12PipelineState> m_pipelineState;
 	ComPtr<ID3D12GraphicsCommandList> m_commandList;
 
+    enum class ComputePass
+    {
+        Generate,
+        Move,
+        Destroy,
+        Count
+    };
+
 	//Compute
 	ComPtr<ID3D12RootSignature >m_rootSignatureCompute;
 	ComPtr<ID3D12CommandAllocator> m_commandAllocatorCompute;
 	ComPtr<ID3D12CommandQueue> m_commandQueueCompute;
-	ComPtr<ID3D12PipelineState> m_pipelineStateCompute;
+    ComPtr<ID3D12PipelineState> m_computePipelineStates[(int)ComputePass::Count] = {};
 	ComPtr<ID3D12GraphicsCommandList> m_commandListCompute;
 
 	// App resources.
@@ -97,7 +105,7 @@ private:
 	ComPtr<ID3D12Resource> m_vertexBuffer;
 	ComPtr<ID3D12Resource> m_vertexBufferUpload;
 	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
-    ComPtr<ID3D12Resource> m_particleCounter;
+    ComPtr<ID3D12Resource> m_deadListBuffer;
 	ComPtr<ID3D12Resource> m_particleBufferUpload;
 	ComPtr<ID3D12Resource> m_constantBufferGS;
     

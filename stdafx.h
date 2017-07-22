@@ -33,3 +33,5 @@
 #include <fstream>
 #include <wrl.h>
 #include <shellapi.h>
+
+#include <memory>

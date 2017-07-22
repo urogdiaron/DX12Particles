@@ -151,13 +151,13 @@ void DX12Particles::LoadPipeline()
 void DX12Particles::CreateVertexBuffer()
 {
     std::vector<ParticleVertex> vertexData;
-    vertexData.resize(ParticleCount);
+    vertexData.resize(ParticleBufferSize);
     for (auto& v : vertexData)
     {
         v.color = XMFLOAT4(0.1f, 0.0f, (rand() % 15) / 14.0f, 1.0f);
     }
 
-    const UINT bufferSize = sizeof(ParticleVertex) * ParticleCount;
+    const UINT bufferSize = sizeof(ParticleVertex) * ParticleBufferSize;
 
     ThrowIfFailed(m_device->CreateCommittedResource(
         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
@@ -196,14 +196,14 @@ void DX12Particles::CreateVertexBuffer()
 void DX12Particles::CreateParticleBuffers()
 {
     std::vector<ParticleData> particleData;
-    particleData.resize(ParticleCount);
-    for (int i = 0; i < ParticleCount; i++)
+    particleData.resize(ParticleBufferSize);
+    for (int i = 0; i < ParticleBufferSize; i++)
     {
         particleData[i].pos = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
         particleData[i].alive = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    const UINT bufferSize = sizeof(ParticleData) * ParticleCount;
+    const UINT bufferSize = sizeof(ParticleData) * ParticleBufferSize;
 
     ThrowIfFailed(m_device->CreateCommittedResource(
         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
@@ -255,7 +255,7 @@ void DX12Particles::CreateParticleBuffers()
         srvDesc.Format = DXGI_FORMAT_UNKNOWN;
         srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
         srvDesc.Buffer.FirstElement = 0;
-        srvDesc.Buffer.NumElements = ParticleCount;
+        srvDesc.Buffer.NumElements = ParticleBufferSize;
         srvDesc.Buffer.StructureByteStride = sizeof(ParticleData);
         srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
@@ -266,7 +266,7 @@ void DX12Particles::CreateParticleBuffers()
         uavDesc.Format = DXGI_FORMAT_UNKNOWN;
         uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uavDesc.Buffer.FirstElement = 0;
-        uavDesc.Buffer.NumElements = ParticleCount;
+        uavDesc.Buffer.NumElements = ParticleBufferSize;
         uavDesc.Buffer.StructureByteStride = sizeof(ParticleData);
         uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
 
@@ -405,8 +405,11 @@ void DX12Particles::LoadAssets()
 
     //Create compute PSO
     {
-        ComPtr<ID3DBlob> computeShader;
-
+        ComPtr<ID3DBlob> computeShaders[(int)ComputePass::Count];
+        const char* shaderFunctions[(int)ComputePass::Count] = {};
+        shaderFunctions[(int)ComputePass::Generate] = "CSGenerate";
+        shaderFunctions[(int)ComputePass::Move] = "CSUpdate";
+        shaderFunctions[(int)ComputePass::Destroy] = "CSDestroy";
 #if defined(_DEBUG)
         // Enable better shader debugging with the graphics debugging tools.
         UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
@@ -414,27 +417,34 @@ void DX12Particles::LoadAssets()
         UINT compileFlags = 0;
 #endif
 
-        ComPtr<ID3DBlob> errorBlob = nullptr;
-        // @Incomplete: Precompile the shaders! See how to set up compile flags that way.
-        if FAILED(D3DCompileFromFile(GetAssetFullPath(L"ParticleDraw.hlsl").c_str(), nullptr, nullptr, "CSParticleCompute", "cs_5_0", compileFlags, 0, &computeShader, &errorBlob))
+        for (int i = 0; i < (int)ComputePass::Count; i++)
         {
-            if (errorBlob)
+            if(!shaderFunctions[i])
             {
-                OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+                continue;
             }
+            ComPtr<ID3DBlob> errorBlob = nullptr;
+            // @Incomplete: Precompile the shaders! See how to set up compile flags that way.
+            if FAILED(D3DCompileFromFile(GetAssetFullPath(L"ParticleDraw.hlsl").c_str(), nullptr, nullptr, shaderFunctions[i], "cs_5_0", compileFlags, 0, &computeShaders[i], &errorBlob))
+            {
+                if (errorBlob)
+                {
+                    OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+                }
+            }
+            
+            CD3DX12_DEPTH_STENCIL_DESC depthStencilDesc(D3D12_DEFAULT);
+            depthStencilDesc.DepthEnable = FALSE;
+            depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+
+            // Describe and create the graphics pipeline state objects (PSO).
+            D3D12_COMPUTE_PIPELINE_STATE_DESC computePsoDesc = {};
+            computePsoDesc.pRootSignature = m_rootSignature.Get();
+            computePsoDesc.CS = CD3DX12_SHADER_BYTECODE(computeShaders[i].Get());
+
+            ThrowIfFailed(m_device->CreateComputePipelineState(&computePsoDesc, IID_PPV_ARGS(&m_computePipelineStates[i])));
+            NAME_D3D12_OBJECT(m_computePipelineStates[i]);
         }
-
-        CD3DX12_DEPTH_STENCIL_DESC depthStencilDesc(D3D12_DEFAULT);
-        depthStencilDesc.DepthEnable = FALSE;
-        depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-
-        // Describe and create the graphics pipeline state objects (PSO).
-        D3D12_COMPUTE_PIPELINE_STATE_DESC computePsoDesc = {};
-        computePsoDesc.pRootSignature = m_rootSignature.Get();
-        computePsoDesc.CS = CD3DX12_SHADER_BYTECODE(computeShader.Get());
-
-        ThrowIfFailed(m_device->CreateComputePipelineState(&computePsoDesc, IID_PPV_ARGS(&m_pipelineStateCompute)));
-        NAME_D3D12_OBJECT(m_pipelineStateCompute);
     }
 
     ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
@@ -494,7 +504,7 @@ void DX12Particles::LoadAssets()
         
         ConstantBufferData DataToUpload;
         DataToUpload.m_AspectRatio = (float)m_width / m_height;
-        DataToUpload.m_ParticleCount = ParticleCount;
+        DataToUpload.m_ParticleCount = ParticleBufferSize;
 
         D3D12_SUBRESOURCE_DATA constantBufferSubresourceData;
         constantBufferSubresourceData.pData = reinterpret_cast<void*>(&DataToUpload);
@@ -511,29 +521,60 @@ void DX12Particles::LoadAssets()
         m_device->CreateConstantBufferView(&cbvDesc, cbvHandle);
     }
 
+    ComPtr<ID3D12Resource> deadListBufferUpload;
     {
-        UINT64 counterBufferSize = sizeof(UINT);
-        // Create the counter resource
+        UINT64 deadListBufferSize = sizeof(UINT) * (ParticleBufferSize + 1);
+        // Create the dead list append buffer
         ThrowIfFailed(m_device->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(counterBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            &CD3DX12_RESOURCE_DESC::Buffer(deadListBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+            D3D12_RESOURCE_STATE_COPY_DEST,
             nullptr,
-            IID_PPV_ARGS(&m_particleCounter)
+            IID_PPV_ARGS(&m_deadListBuffer)
         ));
-        NAME_D3D12_OBJECT(m_particleCounter);
+        NAME_D3D12_OBJECT(m_deadListBuffer);
+
+        ThrowIfFailed(m_device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(deadListBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&deadListBufferUpload)
+        ));
+
+        struct DeadListBufferData
+        {
+            UINT m_availableIndices[ParticleBufferSize];
+            UINT m_nParticleCount;
+        };
+
+        auto pDataToUpload = std::make_unique<DeadListBufferData>();
+        for (int i = 0; i < ParticleBufferSize; i++)
+        {
+            pDataToUpload->m_availableIndices[i] = i;
+        }
+        pDataToUpload->m_nParticleCount = 0;
+
+        D3D12_SUBRESOURCE_DATA deadListBufferData;
+        deadListBufferData.pData = reinterpret_cast<void*>(pDataToUpload.get());
+        deadListBufferData.SlicePitch = sizeof(DeadListBufferData);
+        deadListBufferData.RowPitch = sizeof(DeadListBufferData);
+        UpdateSubresources<1>(m_commandList.Get(), m_deadListBuffer.Get(), deadListBufferUpload.Get(), 0, 0, 1, &deadListBufferData);
+        m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_deadListBuffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+
 
         D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
         uavDesc.Format = DXGI_FORMAT_UNKNOWN;
         uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uavDesc.Buffer.FirstElement = 0;
-        uavDesc.Buffer.NumElements = 1;
+        uavDesc.Buffer.NumElements = ParticleBufferSize + 1;
         uavDesc.Buffer.StructureByteStride = sizeof(UINT);
         uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
 
-        CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::CounterUAV, m_cbvSrvDescriptorSize);
-        m_device->CreateUnorderedAccessView(m_particleCounter.Get(), m_particleCounter.Get(), &uavDesc, uavHandle);
+        CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::DeadListUAV, m_cbvSrvDescriptorSize);
+        m_device->CreateUnorderedAccessView(m_deadListBuffer.Get(), nullptr, &uavDesc, uavHandle);
     }
 
     
@@ -616,7 +657,7 @@ void DX12Particles::OnUpdate()
 
     struct ConstBufferData
     {
-        int m_EmitCount = 0;
+        UINT m_EmitCount = 0;
     };
 
     ConstBufferData& DataToUpload = *reinterpret_cast<ConstBufferData*>(m_constantBufferPerFrameData[m_frameIndex]);
@@ -639,9 +680,8 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
     PIXBeginEvent(m_commandQueueCompute.Get(), 0, L"Compute");
 
     ThrowIfFailed(m_commandAllocatorCompute->Reset());
-    ThrowIfFailed(m_commandListCompute->Reset(m_commandAllocatorCompute.Get(), m_pipelineStateCompute.Get()));
+    ThrowIfFailed(m_commandListCompute->Reset(m_commandAllocatorCompute.Get(), m_computePipelineStates[(int)ComputePass::Generate].Get()));
 
-    m_commandListCompute->SetPipelineState(m_pipelineStateCompute.Get());
     m_commandListCompute->SetComputeRootSignature(m_rootSignature.Get());
 
     ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
@@ -661,10 +701,17 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
     CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::PerFrameConstantBuffer0 + readableBufferIndex, m_cbvSrvDescriptorSize);
     m_commandListCompute->SetComputeRootDescriptorTable(3, cbvHandle);
 
-    CD3DX12_GPU_DESCRIPTOR_HANDLE counterHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::CounterUAV, m_cbvSrvDescriptorSize);
+    CD3DX12_GPU_DESCRIPTOR_HANDLE counterHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::DeadListUAV, m_cbvSrvDescriptorSize);
     m_commandListCompute->SetComputeRootDescriptorTable(4, counterHandle);
 
-    m_commandListCompute->Dispatch((int)ceilf((float)ParticleCount / 1000), 1, 1);
+    for (auto& pipelineState : m_computePipelineStates)
+    {
+        if (pipelineState)
+        {
+            m_commandListCompute->SetPipelineState(pipelineState.Get());
+            m_commandListCompute->Dispatch((int)ceilf((float)ParticleBufferSize / 1000), 1, 1);
+        }
+    }
 
     m_commandListCompute->ResourceBarrier(1,
         &CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[readableBufferIndex].Get(),
@@ -742,7 +789,7 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::PerFrameConstantBuffer0 + readableBufferIndex, m_cbvSrvDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(3, cbvHandle);
 
-    CD3DX12_GPU_DESCRIPTOR_HANDLE counterHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::CounterUAV, m_cbvSrvDescriptorSize);
+    CD3DX12_GPU_DESCRIPTOR_HANDLE counterHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::DeadListUAV, m_cbvSrvDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(4, counterHandle);
 
 
@@ -761,7 +808,7 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 
     m_commandList->RSSetViewports(1, &m_viewport);
-    m_commandList->DrawInstanced(ParticleCount, 1, 0, 0);
+    m_commandList->DrawInstanced(ParticleBufferSize, 1, 0, 0);
 
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
     m_commandList->Close();

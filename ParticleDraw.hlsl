@@ -42,17 +42,17 @@ struct PosVelo
 
 StructuredBuffer<PosVelo> g_bufPosVelo		 : register(t0);	// SRV
 RWStructuredBuffer<PosVelo> g_bufPosVeloOut  : register(u0);	// UAV
-RWStructuredBuffer<uint> g_counter           : register(u1);	// UAV
+RWStructuredBuffer<uint> g_deadList         : register(u1);	// UAV - g_deadList[g_nParticleBufferSize] = the current particle count
 
 cbuffer perFrame : register(b0)
 {
 	float g_fAspectRatio;
-    int g_nParticleCount;
+    uint g_nParticleBufferSize;
 };
 
 cbuffer perFrame : register(b1)
 {
-    int g_nEmitCount;
+    uint g_nEmitCount;
 };
 
 cbuffer cb1
@@ -101,14 +101,14 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
 {
 	GSParticleDrawOut output;
 	
-    if (input[0].pos.w < 0.5)
+    if (input[0].pos.w < 1)
         return;
 
 	// Emit two new triangles.
 	for (int i = 0; i < 4; i++)
 	{
 		float3 position = g_positions[i] * g_fParticleRad;
-		position += input[0].pos;
+		position += input[0].pos.xyz;
 		position.x /= g_fAspectRatio;
 
 		output.pos = float4(position, 1);
@@ -130,17 +130,73 @@ float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 	return float4(1, 1, 1, intensity);
 }
 
-
 [numthreads(1000, 1, 1)]
-void CSParticleCompute(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
+void CSGenerate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
-    g_bufPosVeloOut[DTid.x] = g_bufPosVelo[DTid.x];
-    g_bufPosVeloOut[DTid.x].pos.x += 0.0001f * g_bufPosVeloOut[DTid.x].alive.x;
-
     if(DTid.x < g_nEmitCount)
     {
-        uint nLastParticle = g_counter.IncrementCounter() % g_nParticleCount;
-        g_bufPosVeloOut[nLastParticle].pos = float4(0, 0, 0, 0);
-        g_bufPosVeloOut[nLastParticle].alive.x = 1.0;
+        uint nPrevParticleCount;
+        InterlockedAdd(g_deadList[g_nParticleBufferSize], 1, nPrevParticleCount);
+        if (nPrevParticleCount < g_nParticleBufferSize)
+        {
+            //There's still space left for a new particle. Mark one for creation
+            uint nLastParticle = g_deadList[g_nParticleBufferSize - nPrevParticleCount - 1];
+            g_bufPosVeloOut[nLastParticle].alive.x = 0.5;
+        }
+        else
+        {
+            uint nTmp;
+            InterlockedMin(g_deadList[g_nParticleBufferSize], g_nParticleBufferSize, nTmp);
+        }
+
+    }
+
+    if (g_bufPosVelo[DTid.x].alive.x < 0.8 && g_bufPosVelo[DTid.x].alive.x > 0.3)
+    {
+        g_bufPosVeloOut[DTid.x].pos = float4(0, 0, 0, 0);
+        g_bufPosVeloOut[DTid.x].alive.x = 1;
+    }
+}
+
+[numthreads(1000, 1, 1)]
+void CSUpdate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
+{
+    if (DTid.x >= g_nParticleBufferSize)
+    {
+        return;
+    }
+
+    if (g_bufPosVelo[DTid.x].alive.x < 0.8)
+    {
+        return;
+    }
+
+    g_bufPosVeloOut[DTid.x] = g_bufPosVelo[DTid.x];
+    float fNewX = g_bufPosVelo[DTid.x].pos.x + 0.0001f;
+    if (fNewX > 0.8f)
+    {
+        g_bufPosVeloOut[DTid.x].alive.x = -1;
+    }
+    g_bufPosVeloOut[DTid.x].pos.x = fNewX;
+}
+
+[numthreads(1000, 1, 1)]
+void CSDestroy(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
+{
+    if (DTid.x >= g_nParticleBufferSize)
+    {
+        return;
+    }
+    if (g_bufPosVelo[DTid.x].alive.x < 0.3)
+    {
+        g_bufPosVeloOut[DTid.x].alive.x = g_bufPosVelo[DTid.x].alive.x;
+    }
+    if (g_bufPosVelo[DTid.x].alive.x < -0.56)
+    {
+        uint nPrevParticleCount;
+        InterlockedAdd(g_deadList[g_nParticleBufferSize], -1, nPrevParticleCount);
+        g_deadList[nPrevParticleCount - 1] = DTid.x;
+        g_bufPosVeloOut[DTid.x].alive.x = 0;
+        g_bufPosVeloOut[DTid.x].pos.xyz = float3(5,6,7);
     }
 }
