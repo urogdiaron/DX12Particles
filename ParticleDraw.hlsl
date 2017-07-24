@@ -149,7 +149,7 @@ void CSGenerate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 
     {
         uint rndSeed = g_nRandomSeed + DTid.x;
 
-        g_bufPosVeloOut[DTid.x].pos = float4(0, 0, 0, 2 + GetRandomNumber(rndSeed) * 2);
+        g_bufPosVeloOut[DTid.x].pos = float4(0, 0, 0, 0.5);
         g_bufPosVeloOut[DTid.x].velocity = float4(GetRandomNumber(rndSeed) * 2.0f - 1.0f, GetRandomNumber(rndSeed) * 2.0f - 1.0f, 0, 0);
         g_bufPosVeloOut[DTid.x].alive.x = 1;
     }
@@ -165,6 +165,7 @@ void CSGenerate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 
         {
             //There's still space left for a new particle. Mark one for creation
             uint nLastParticle = g_deadList[g_nParticleBufferSize - nPrevParticleCount];
+            g_deadList[g_nParticleBufferSize - nPrevParticleCount] = 9;
             g_bufPosVeloOut[nLastParticle].alive.x = 0.5;
         }
         else
@@ -206,8 +207,8 @@ void CSDestroy(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 G
     }
     if (g_bufPosVelo[DTid.x].alive.x < 0)
     {
-        int nPrevParticleCount = g_deadList.DecrementCounter();
-        g_deadList[nPrevParticleCount] = DTid.x;
+        int nNewParticleCount = g_deadList.DecrementCounter();
+        g_deadList[g_nParticleBufferSize - nNewParticleCount] = DTid.x;
         g_bufPosVeloOut[DTid.x].alive.x = 0;
         g_bufPosVeloOut[DTid.x].pos.xyz = float3(5,6,7);
     }

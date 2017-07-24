@@ -10,6 +10,8 @@
 //*********************************************************
 
 #include "stdafx.h"
+#include <sstream>
+#include <string>
 #include "DX12Particles.h"
 
 #define InterlockedGetValue(object) InterlockedCompareExchange(object, 0, 0)
@@ -304,7 +306,7 @@ void DX12Particles::LoadAssets()
         ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
         ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
         ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // The second 1 there is the register number for the cb in shader
-        ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC); // The second 1 there is the register number for the cb in shader
+        ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE); // The second 1 there is the register number for the cb in shader
 
         CD3DX12_ROOT_PARAMETER1 rootParameters[5];
         rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
@@ -539,6 +541,16 @@ void DX12Particles::LoadAssets()
         NAME_D3D12_OBJECT(m_deadListBuffer);
 
         ThrowIfFailed(m_device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(deadListBufferSize, D3D12_RESOURCE_FLAG_NONE),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&m_deadListReadback)
+        ));
+        NAME_D3D12_OBJECT(m_deadListReadback);
+
+        ThrowIfFailed(m_device->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(deadListBufferSize),
@@ -546,12 +558,6 @@ void DX12Particles::LoadAssets()
             nullptr,
             IID_PPV_ARGS(&deadListBufferUpload)
         ));
-
-        struct DeadListBufferData
-        {
-            UINT m_nParticleCount;
-            UINT m_availableIndices[ParticleBufferSize];
-        };
 
         auto pDataToUpload = std::make_unique<DeadListBufferData>();
         for (int i = 0; i < ParticleBufferSize; i++)
@@ -645,15 +651,26 @@ void DX12Particles::OnUpdate()
 {
     m_timer.Tick(NULL);
 
-    if (m_frameCounter == 500)
+    //if (m_frameCounter == 500)
     {
         // Update window text with FPS value.
-        wchar_t fps[64];
-        swprintf_s(fps, L"%ufps (%s) (%s)", 
+        /*wchar_t fps[64];
+        swprintf_s(fps, L"%ufps (%s) (%s);",
             m_timer.GetFramesPerSecond(), 
             m_computeFirst ? L"Compute first" : L"Render first",
-            m_waitForComputeOnGPU ? L"Waiting on GPU" : L"Waiting on CPU");
-        SetCustomWindowText(fps);
+            m_waitForComputeOnGPU ? L"Waiting on GPU" : L"Waiting on CPU");*/
+
+        std::wstringstream ss;
+        ss << "DeadListBuffer   ";
+        ss << "Counter: ";
+        ss << m_LastFrameDeadListBufferData.m_nParticleCount;
+        ss << "  Data: ";
+        for(auto& Index : m_LastFrameDeadListBufferData.m_availableIndices)
+        {
+            ss << Index;
+            ss << ";";
+        }
+        SetCustomWindowText(ss.str().c_str());
         m_frameCounter = 0;
     }
 
@@ -720,6 +737,18 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
         &CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[writableBufferIndex].Get(),
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+
+    m_commandListCompute->ResourceBarrier(1,
+        &CD3DX12_RESOURCE_BARRIER::Transition(m_deadListBuffer.Get(),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE));
+
+    m_commandListCompute->CopyResource(m_deadListReadback.Get(), m_deadListBuffer.Get());
+
+    m_commandListCompute->ResourceBarrier(1,
+        &CD3DX12_RESOURCE_BARRIER::Transition(m_deadListBuffer.Get(),
+            D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
 
     m_commandListCompute->Close();
 
@@ -839,11 +868,19 @@ void DX12Particles::OnRender()
     
         WaitForFence(!m_waitForComputeOnGPU, true);
     }
+
     // Present and update the frame index for the next frame.
     ThrowIfFailed(m_swapChain->Present(0, 0));
     WaitForFence(true, false);
 
+    DeadListBufferData* deadListBufferData;
+    CD3DX12_RANGE ReadRange(0, sizeof(DeadListBufferData));
+    ThrowIfFailed(m_deadListReadback->Map(0, &ReadRange, reinterpret_cast<void**>(&deadListBufferData)));
+    m_LastFrameDeadListBufferData = *deadListBufferData;
+    m_deadListReadback->Unmap(0, nullptr);
+
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+
 }
 
 void DX12Particles::OnDestroy()
@@ -881,6 +918,10 @@ void DX12Particles::OnKeyDown(UINT8 key)
     else if(key == 'E')
     {
         m_nEmitCountNextFrame = 1;
+    }
+    else if (key == 'R')
+    {
+        m_nEmitCountNextFrame = 10;
     }
 }
 

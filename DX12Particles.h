@@ -29,6 +29,9 @@ class DX12Particles : public DXSample
 public:
 	DX12Particles(UINT width, UINT height, std::wstring name);
 
+    static const int ParticleBufferSize = 5;
+    static const int FrameCount = 2;
+
 	virtual void OnInit();
 	virtual void OnUpdate();
     void RunComputeShader(int readableBufferIndex, int writableBufferIndex);
@@ -39,7 +42,6 @@ public:
 	virtual void OnKeyDown(UINT8 key);
 	virtual void OnKeyUp(UINT8 key);
 
-private:
 	struct ParticleVertex
 	{
 		XMFLOAT4 color;
@@ -65,8 +67,11 @@ private:
         Count
     };
 
-	static const int ParticleBufferSize = 200;
-	static const int FrameCount = 2;
+    struct DeadListBufferData
+    {
+        UINT m_nParticleCount;
+        UINT m_availableIndices[ParticleBufferSize];
+    };
 
 	// Pipeline objects.
 	CD3DX12_VIEWPORT m_viewport;
@@ -107,6 +112,7 @@ private:
 	ComPtr<ID3D12Resource> m_vertexBufferUpload;
 	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
     ComPtr<ID3D12Resource> m_deadListBuffer;
+    ComPtr<ID3D12Resource> m_deadListReadback;
 	ComPtr<ID3D12Resource> m_particleBufferUpload;
 	ComPtr<ID3D12Resource> m_constantBufferGS;
     
@@ -121,6 +127,8 @@ private:
 	SimpleCamera m_camera;
     std::mt19937 m_randomNumberEngine;
 
+    DeadListBufferData m_LastFrameDeadListBufferData;
+
 	// Synchronization objects.
 	UINT m_frameIndex;
 	UINT m_frameCounter;
@@ -129,6 +137,8 @@ private:
 	UINT64 m_fenceValue;
     bool m_computeFirst = false;
     bool m_waitForComputeOnGPU = false;
+
+    
     
     void LoadPipeline();
     void CreateVertexBuffer();
