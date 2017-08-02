@@ -85,12 +85,12 @@ cbuffer cbImmutable
 //
 // Vertex shader for drawing the point-sprite particles.
 //
-VSParticleDrawOut VSParticleDraw(VSParticleIn input)
+VSParticleDrawOut VSParticleDraw(uint id : SV_VERTEXID)
 {
 	VSParticleDrawOut output;
 
-	output.pos = float4(g_bufPosVelo[input.id].pos.xyz, g_bufPosVelo[input.id].alive.x);
-	output.color = input.color;
+	output.pos = float4(g_bufPosVelo[id].pos.xyz, g_bufPosVelo[id].alive.x);
+	output.color = float4(1,1,1,1);
 	
 	return output;
 }

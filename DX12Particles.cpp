@@ -152,51 +152,6 @@ void DX12Particles::LoadPipeline()
 
 }
 
-void DX12Particles::CreateVertexBuffer()
-{
-    std::vector<ParticleVertex> vertexData;
-    vertexData.resize(ParticleBufferSize);
-    for (auto& v : vertexData)
-    {
-        v.color = XMFLOAT4(0.1f, 0.0f, (rand() % 15) / 14.0f, 1.0f);
-    }
-
-    const UINT bufferSize = sizeof(ParticleVertex) * ParticleBufferSize;
-
-    ThrowIfFailed(m_device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
-        D3D12_RESOURCE_STATE_COPY_DEST,
-        nullptr,
-        IID_PPV_ARGS(&m_vertexBuffer)
-    ));
-
-
-    ThrowIfFailed(m_device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&m_vertexBufferUpload)
-    ));
-
-    NAME_D3D12_OBJECT(m_vertexBuffer);
-
-
-    D3D12_SUBRESOURCE_DATA vertexSubresourceData;
-    vertexSubresourceData.pData = reinterpret_cast<void*>(vertexData.data());
-    vertexSubresourceData.SlicePitch = bufferSize;
-    vertexSubresourceData.RowPitch = bufferSize;
-    UpdateSubresources<1>(m_commandList.Get(), m_vertexBuffer.Get(), m_vertexBufferUpload.Get(), 0, 0, 1, &vertexSubresourceData);
-
-    // Create the vertex buffer view
-    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-    m_vertexBufferView.SizeInBytes = bufferSize;
-    m_vertexBufferView.StrideInBytes = sizeof(ParticleVertex);
-}
-
 void DX12Particles::CreateParticleBuffers()
 {
     std::vector<ParticleData> particleData;
@@ -243,13 +198,13 @@ void DX12Particles::CreateParticleBuffers()
         IID_PPV_ARGS(&m_particleBufferUpload)
     ));
 
-    NAME_D3D12_OBJECT(m_vertexBuffer);
+    NAME_D3D12_OBJECT(m_particleBufferUpload);
 
 
     D3D12_SUBRESOURCE_DATA particleSubresourceData;
     particleSubresourceData.pData = reinterpret_cast<void*>(particleData.data());
     particleSubresourceData.SlicePitch = bufferSize;
-    particleSubresourceData.RowPitch = bufferSize;
+    particleSubresourceData.RowPitch = bufferSize;    
     UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[0].Get(), m_particleBufferUpload.Get(), 0, 0, 1, &particleSubresourceData);
 
     for (int i = 0; i < FrameCount; i++)
@@ -370,10 +325,6 @@ void DX12Particles::LoadAssets()
             }
         }
 
-        D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
-        {
-            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        };
 
         CD3DX12_DEPTH_STENCIL_DESC depthStencilDesc(D3D12_DEFAULT);
         depthStencilDesc.DepthEnable = FALSE;
@@ -389,7 +340,7 @@ void DX12Particles::LoadAssets()
 
         // Describe and create the graphics pipeline state objects (PSO).
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
+        psoDesc.InputLayout = { nullptr, 0 };
         psoDesc.pRootSignature = m_rootSignature.Get();
         psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
         psoDesc.GS = CD3DX12_SHADER_BYTECODE(geometryShader.Get());
@@ -469,8 +420,6 @@ void DX12Particles::LoadAssets()
 
         NAME_D3D12_OBJECT_INDEXED(m_renderTargets, i);
     }
-
-    CreateVertexBuffer();
 
     // Create a two particle buffers. The first one with data, the second with nothing in it.
     CreateParticleBuffers();
@@ -819,8 +768,6 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     CD3DX12_GPU_DESCRIPTOR_HANDLE counterHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::DeadListUAV, m_cbvSrvDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(4, counterHandle);
 
-
-    m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 

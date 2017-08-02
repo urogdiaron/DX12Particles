@@ -141,7 +141,6 @@ public:
     
     
     void LoadPipeline();
-    void CreateVertexBuffer();
     void CreateParticleBuffers();
     void LoadAssets();
 };
