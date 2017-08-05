@@ -38,6 +38,7 @@ struct PosVelo
 {
     float4 pos;
     float4 velocity;
+    float4 color;
     float4 alive;
 };
 
@@ -89,8 +90,9 @@ VSParticleDrawOut VSParticleDraw(uint id : SV_VERTEXID)
 {
 	VSParticleDrawOut output;
 
-	output.pos = float4(g_bufPosVelo[id].pos.xyz, g_bufPosVelo[id].alive.x);
-	output.color = float4(1,1,1,1);
+    PosVelo particleData = g_bufPosVelo[id];
+	output.pos = float4(particleData.pos.xyz, particleData.alive.x);
+	output.color = particleData.color;
 	
 	return output;
 }
@@ -130,7 +132,7 @@ float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 {
 	float intensity = 0.5f - length(float2(0.5f, 0.5f) - input.tex);
 	intensity = clamp(intensity, 0.0f, 0.5f) * 2.0f;
-	return float4(1, 1, 1, intensity);
+	return float4(input.color.rgb, intensity);
 }
 
 float GetRandomNumber(inout uint rng_state)
@@ -151,6 +153,7 @@ void CSGenerate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 
 
         g_bufPosVeloOut[DTid.x].pos = float4(0, 0, 0, 0.5);
         g_bufPosVeloOut[DTid.x].velocity = float4(GetRandomNumber(rndSeed) * 2.0f - 1.0f, GetRandomNumber(rndSeed) * 2.0f - 1.0f, 0, 0);
+        g_bufPosVeloOut[DTid.x].color = float4(GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), 1);
         g_bufPosVeloOut[DTid.x].alive.x = 1;
     }
     else

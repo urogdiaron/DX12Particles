@@ -17,6 +17,8 @@
 
 using namespace DirectX;
 
+#define DEBUG_PARTICLE_DATA
+
 // Note that while ComPtr is used to manage the lifetime of resources on the CPU,
 // it has no understanding of the lifetime of resources on the GPU. Apps must account
 // for the GPU lifetime of resources to avoid destroying objects that may still be
@@ -29,7 +31,7 @@ class DX12Particles : public DXSample
 public:
 	DX12Particles(UINT width, UINT height, std::wstring name);
 
-    static const int ParticleBufferSize = 5;
+    static const int ParticleBufferSize = 25000;
     static const int FrameCount = 2;
 
 	virtual void OnInit();
@@ -51,6 +53,7 @@ public:
 	{
 		XMFLOAT4 pos;
         XMFLOAT4 velocity;
+        XMFLOAT4 color;
         XMFLOAT4 alive;
 	};
 
@@ -112,7 +115,6 @@ public:
 	ComPtr<ID3D12Resource> m_vertexBufferUpload;
 	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
     ComPtr<ID3D12Resource> m_deadListBuffer;
-    ComPtr<ID3D12Resource> m_deadListReadback;
 	ComPtr<ID3D12Resource> m_particleBufferUpload;
 	ComPtr<ID3D12Resource> m_constantBufferGS;
     
@@ -127,7 +129,10 @@ public:
 	SimpleCamera m_camera;
     std::mt19937 m_randomNumberEngine;
 
+#ifdef DEBUG_PARTICLE_DATA
     DeadListBufferData m_LastFrameDeadListBufferData;
+    ComPtr<ID3D12Resource> m_deadListReadback;
+#endif
 
 	// Synchronization objects.
 	UINT m_frameIndex;
@@ -138,7 +143,7 @@ public:
     bool m_computeFirst = false;
     bool m_waitForComputeOnGPU = false;
 
-    
+    bool m_bPaused = false;
     
     void LoadPipeline();
     void CreateParticleBuffers();

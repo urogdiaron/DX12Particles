@@ -156,12 +156,6 @@ void DX12Particles::CreateParticleBuffers()
 {
     std::vector<ParticleData> particleData;
     particleData.resize(ParticleBufferSize);
-    for (int i = 0; i < ParticleBufferSize; i++)
-    {
-        particleData[i].pos = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
-        particleData[i].velocity = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
-        particleData[i].alive = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
-    }
 
     const UINT bufferSize = sizeof(ParticleData) * ParticleBufferSize;
 
@@ -489,6 +483,7 @@ void DX12Particles::LoadAssets()
         ));
         NAME_D3D12_OBJECT(m_deadListBuffer);
 
+#ifdef DEBUG_PARTICLE_DATA
         ThrowIfFailed(m_device->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK),
             D3D12_HEAP_FLAG_NONE,
@@ -498,6 +493,7 @@ void DX12Particles::LoadAssets()
             IID_PPV_ARGS(&m_deadListReadback)
         ));
         NAME_D3D12_OBJECT(m_deadListReadback);
+#endif
 
         ThrowIfFailed(m_device->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
@@ -600,26 +596,14 @@ void DX12Particles::OnUpdate()
 {
     m_timer.Tick(NULL);
 
-    //if (m_frameCounter == 500)
+    if (m_frameCounter == 500)
     {
         // Update window text with FPS value.
-        /*wchar_t fps[64];
+        wchar_t fps[64];
         swprintf_s(fps, L"%ufps (%s) (%s);",
             m_timer.GetFramesPerSecond(), 
             m_computeFirst ? L"Compute first" : L"Render first",
-            m_waitForComputeOnGPU ? L"Waiting on GPU" : L"Waiting on CPU");*/
-
-        std::wstringstream ss;
-        ss << "DeadListBuffer   ";
-        ss << "Counter: ";
-        ss << m_LastFrameDeadListBufferData.m_nParticleCount;
-        ss << "  Data: ";
-        for(auto& Index : m_LastFrameDeadListBufferData.m_availableIndices)
-        {
-            ss << Index;
-            ss << ";";
-        }
-        SetCustomWindowText(ss.str().c_str());
+            m_waitForComputeOnGPU ? L"Waiting on GPU" : L"Waiting on CPU");
         m_frameCounter = 0;
     }
 
@@ -633,9 +617,17 @@ void DX12Particles::OnUpdate()
     };
 
     ConstBufferData& DataToUpload = *reinterpret_cast<ConstBufferData*>(m_constantBufferPerFrameData[m_frameIndex]);
-    DataToUpload.m_EmitCount = m_nEmitCountNextFrame;
-    DataToUpload.m_fElapsedTime = (float)m_timer.GetElapsedSeconds();
-    DataToUpload.m_nRandomSeed = std::uniform_int_distribution<UINT>{}(m_randomNumberEngine);
+    if (m_bPaused)
+    {
+        DataToUpload.m_EmitCount = 0;
+        DataToUpload.m_fElapsedTime = 0.0f;
+    }
+    else
+    {
+        DataToUpload.m_EmitCount = m_nEmitCountNextFrame;
+        DataToUpload.m_fElapsedTime = (float)m_timer.GetElapsedSeconds();
+        DataToUpload.m_nRandomSeed = std::uniform_int_distribution<UINT>{}(m_randomNumberEngine);
+    }
     m_nEmitCountNextFrame = 0;
 }
 
@@ -687,6 +679,7 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
 
+#ifdef DEBUG_PARTICLE_DATA
     m_commandListCompute->ResourceBarrier(1,
         &CD3DX12_RESOURCE_BARRIER::Transition(m_deadListBuffer.Get(),
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
@@ -698,6 +691,7 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
         &CD3DX12_RESOURCE_BARRIER::Transition(m_deadListBuffer.Get(),
             D3D12_RESOURCE_STATE_COPY_SOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+#endif
 
     m_commandListCompute->Close();
 
@@ -820,11 +814,13 @@ void DX12Particles::OnRender()
     ThrowIfFailed(m_swapChain->Present(0, 0));
     WaitForFence(true, false);
 
+#ifdef DEBUG_PARTICLE_DATA
     DeadListBufferData* deadListBufferData;
     CD3DX12_RANGE ReadRange(0, sizeof(DeadListBufferData));
     ThrowIfFailed(m_deadListReadback->Map(0, &ReadRange, reinterpret_cast<void**>(&deadListBufferData)));
     m_LastFrameDeadListBufferData = *deadListBufferData;
     m_deadListReadback->Unmap(0, nullptr);
+#endif
 
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
@@ -870,9 +866,14 @@ void DX12Particles::OnKeyDown(UINT8 key)
     {
         m_nEmitCountNextFrame = 10;
     }
+    else if (key == 'P')
+    {
+        m_bPaused = !m_bPaused;
+    }
 }
 
 void DX12Particles::OnKeyUp(UINT8 key)
 {
     m_camera.OnKeyUp(key);
 }
+
