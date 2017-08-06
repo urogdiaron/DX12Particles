@@ -64,12 +64,23 @@
     <ClInclude Include="DX12Particles.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ParticleCommon.h">
+      <Filter>Assets\Shaders</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="ParticleDraw.hlsl">
+    <CustomBuild Include="ParticleDraw.hlsl">
+      <Filter>Assets\Shaders</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="ParticleCompute.hlsl">
+      <Filter>Assets\Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="PraticleDebug.hlsl">
       <Filter>Assets\Shaders</Filter>
     </FxCompile>
   </ItemGroup>

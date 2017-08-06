@@ -31,7 +31,7 @@ class DX12Particles : public DXSample
 public:
 	DX12Particles(UINT width, UINT height, std::wstring name);
 
-    static const int ParticleBufferSize = 25000;
+    static const UINT ParticleBufferSize = 5000;
     static const int FrameCount = 2;
 
 	virtual void OnInit();
@@ -51,10 +51,10 @@ public:
 
 	struct ParticleData
 	{
-		XMFLOAT4 pos;
+		XMFLOAT3 pos;
+        float fTimeLeft;
         XMFLOAT4 velocity;
         XMFLOAT4 color;
-        XMFLOAT4 alive;
 	};
 
     enum class DescOffset
@@ -90,7 +90,8 @@ public:
 	ComPtr<ID3D12CommandAllocator> m_commandAllocator;
 	ComPtr<ID3D12CommandQueue> m_commandQueue;
 	ComPtr<ID3D12RootSignature >m_rootSignature;	
-	ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<ID3D12PipelineState> m_pipelineStateDebug;
 	ComPtr<ID3D12GraphicsCommandList> m_commandList;
 
     enum class ComputePass
@@ -130,7 +131,7 @@ public:
     std::mt19937 m_randomNumberEngine;
 
 #ifdef DEBUG_PARTICLE_DATA
-    DeadListBufferData m_LastFrameDeadListBufferData;
+    std::unique_ptr<DeadListBufferData> m_LastFrameDeadListBufferData;
     ComPtr<ID3D12Resource> m_deadListReadback;
 #endif
 
@@ -144,6 +145,7 @@ public:
     bool m_waitForComputeOnGPU = false;
 
     bool m_bPaused = false;
+    bool m_bDebug = false;
     
     void LoadPipeline();
     void CreateParticleBuffers();

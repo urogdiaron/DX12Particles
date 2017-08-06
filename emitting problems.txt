@@ -1,0 +1,34 @@
+What makes double buffered particle systems so hard?
+
+For now we'll focus on the main part, which is emitting.
+I have a particle buffer that contains position, velocity and color data, as well as a lifetime that counts down.
+On top of that I also have a piece of data that tells the system whether or not this particle is alive.
+
+Basically every frame the nth compute thread copies the data to the destination buffer while modifier some data, like the position and the lifetime.
+When a particle dies (due to lifetime for example), the alive variable is set to dead.
+In order to have a robust way of reemitting the particle, the index of the dead particle is stored in a list of available indices. 
+Let's call that list the dead list. Initially the dead list contains all the available indices.
+
+Once we need to emit a particle, a thread (always the first one) pops a value off the dead list. Call this index i. The i-th particle is then set to alive and we also generate initial values for the position and so on.
+Here's a part where I should worry about it already being alive in the first place and being reemitted. That causes problems like the update of the i-th thread will casually override my position data that I just set. But we have more urgent problems right now.
+
+Namely that the i-th thread will also override the alive value. Why is that?
+Every thread is blindly copying the alive value of its particle every frame. If it didn't, then every other frame our particle would not be alive.
+And this is pretty much the core problem. I seemingly have kicked it further and further away step by step but eventually it keeps coming back to bite me.
+
+Here are some of my attempts at dealing with this.
+What if I have multiple possible values of alive and based on that I decide whether to copy it or not. This way it might take 2 frames to really emit a particle but that should be ok. This can solve the problem of another thread not overwriting the alive value but it reeintroduces the original problem, which is that whenever I decide to not copy, one of the buffers will be in a weird state.
+
+Let me put this in a bit more detail.
+First of all just new values of the alive variable won't make a difference, since the first thread is writing in the data of the i-th one. So the idea is to introduce a new variable that in general threads will not write.
+When a particle needs to be emitted, the first thread sets this new variable to 1 marking it as "being emitted". It could also set its initial values provided it isn't alive yet.
+The next frame the i-th thread will see its particle being emitted so it can set it to alive without worrying about other threads interfering with that value. Great, now we have the read-buffer with a dead but marked particle and a write-buffer with an alive particle. But should it still be marked?
+Probably we don't want to keep these particles marked forever so one idea would be to just unmark it and write it out. The next frame we read an unmarked particle so we ignore it, not even copying it. This leaves us with a write buffer with a mark still in place.
+Ok so how about when a thread encounters a marked particle, it initializes it, makes it alive, but then sets its mark to 2. Remember, we made this variable so that we have some data that we never touch so the first thread can write to other particles freely.
+So if a thread finds a particle with a mark of 2, it could set it to 0 which would mean that it shouldn't be copied anymore. This means from this buffer we can never get rid of the 2 (because the 0 mark means we don't copy it).
+Is that a problem though? Couldn't the mark of 2 just be ignored and treated as a 0? Well no because the 0 means we don't write anything. 2 means we write a 0. We must not write anything ever!
+
+So basically I don't seem to be able to make a method that allows the first thread to safely modify data of another particle without any synchronization. Not even if I'm willing to separate the data or introduce a frame delay.
+
+Maybe if the i-th thread knew that in this frame it needs to emit something, every problem would be suddenly solved. This, I think, would require the cpu to manipulate the dead buffer (or at least read it). How would that help? In a given const array it could tell the cpu which thread needs to emit a particle and that's it. In the update phase we could even return early if we knew that our particle is being emitted.
+The problem with this approach is that of course I want to emit an arbitrary number of particles with N different threads. This puts us back to using a list, where the read order is unknown and no two threads can really look at the same data.
