@@ -71,6 +71,9 @@ public:
         PerFrameConstantBuffer0,
         PerFrameConstantBuffer1,
         DeadListUAV,
+        OffsetCounterUAV,
+        OffsetPerTilesUAV,
+        ParticleIndicesForTilesUAV,
         Count
     };
 
@@ -113,9 +116,12 @@ public:
     ComPtr<ID3D12PipelineState> m_computePipelineStates[(int)ComputePass::Count] = {};
 	ComPtr<ID3D12GraphicsCommandList> m_commandListCompute;
 
+    ComPtr<ID3D12RootSignature> m_tileRootSignature;
+    ComPtr<ID3D12PipelineState> m_tilePipelineState;
+    ComPtr<ID3D12Resource> m_tileOffsets;
+    ComPtr<ID3D12Resource> m_ParticleIndicesForTiles;
+
 	// App resources.
-	ComPtr<ID3D12Resource> m_vertexBuffer;
-	ComPtr<ID3D12Resource> m_vertexBufferUpload;
 	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
     ComPtr<ID3D12Resource> m_deadListBuffer;
 	ComPtr<ID3D12Resource> m_constantBufferGS;

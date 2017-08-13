@@ -72,19 +72,17 @@
     <CustomBuild Include="ParticleDraw.hlsl">
       <Filter>Assets\Shaders</Filter>
     </CustomBuild>
-    <CustomBuild Include="ParticleCommon.h">
-      <Filter>Header Files</Filter>
-    </CustomBuild>
     <CustomBuild Include="ParticleCompute.hlsl">
       <Filter>Assets\Shaders</Filter>
     </CustomBuild>
     <CustomBuild Include="ParticleDebug.hlsl">
       <Filter>Assets\Shaders</Filter>
     </CustomBuild>
-  </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="ParticleTile.hlsl">
+    <CustomBuild Include="ParticleCommon.hlsli">
       <Filter>Assets\Shaders</Filter>
-    </FxCompile>
+    </CustomBuild>
+    <CustomBuild Include="ParticleTile.hlsl">
+      <Filter>Assets\Shaders</Filter>
+    </CustomBuild>
   </ItemGroup>
 </Project>

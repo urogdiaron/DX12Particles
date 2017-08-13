@@ -1,4 +1,4 @@
-#include "ParticleCommon.h"
+#include "ParticleCommon.hlsli"
 
 struct VSParticleIn
 {

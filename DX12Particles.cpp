@@ -16,6 +16,8 @@
 
 #define InterlockedGetValue(object) InterlockedCompareExchange(object, 0, 0)
 
+#define MAX_PARTICLE_PER_TILE 1024
+
 
 DX12Particles::DX12Particles(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
@@ -207,6 +209,8 @@ void DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
     particleSubresourceData.RowPitch = bufferSize;
     UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[1].Get(), particleUploadBuffer, 0, 0, 1, &particleSubresourceData);
 
+    // @TODO Set the deadlist's counter to the initialized particles
+    
     for (int i = 0; i < FrameCount; i++)
     {
         // Create a shader resource view
@@ -242,7 +246,6 @@ void DX12Particles::LoadAssets()
     // the command list that references them has finished executing on the GPU.
     // We will flush the GPU at the end of this method to ensure the resources are not
     // prematurely destroyed.
-    ComPtr<ID3D12Resource> vertexBufferUploadHeap;
 
     // Create the root signature.
     {
@@ -261,7 +264,7 @@ void DX12Particles::LoadAssets()
         ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
         ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
         ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // The second 1 there is the register number for the cb in shader
-        ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE); // The second 1 there is the register number for the cb in shader
+        ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE); // The second 1 there is the register number for the uav in shader
 
         CD3DX12_ROOT_PARAMETER1 rootParameters[5];
         rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
@@ -652,6 +655,150 @@ void DX12Particles::LoadAssets()
         m_device->CreateConstantBufferView(&cbvDesc, cbvHandle);
     }
 
+    {
+        //Create Root signature for the tile gathering process
+        D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
+
+        // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
+        featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+
+        if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        {
+            featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        }
+
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[5];
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);    // For the readable particle data
+        ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
+        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 3, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
+        ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 4, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
+
+        CD3DX12_ROOT_PARAMETER1 rootParameters[5];
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
+        rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);
+        rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);
+        rootParameters[4].InitAsDescriptorTable(1, &ranges[4], D3D12_SHADER_VISIBILITY_ALL);
+
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters);
+
+        ComPtr<ID3DBlob> signature;
+        ComPtr<ID3DBlob> error;
+
+        D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error);
+        if (error)
+        {
+            OutputDebugStringA((char*)error->GetBufferPointer());
+        }
+        ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_tileRootSignature)));
+        NAME_D3D12_OBJECT(m_tileRootSignature);
+    }
+
+    {
+        // Create pipeline state objects for the tile gathering process
+        ComPtr<ID3DBlob> tileGatherCS;
+
+#if defined(_DEBUG)
+        // Enable better shader debugging with the graphics debugging tools.
+        UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+        UINT compileFlags = 0;
+#endif
+
+        ComPtr<ID3DBlob> errorBlob = nullptr;
+        // @Incomplete: Precompile the shaders! See how to set up compile flags that way.
+        if FAILED(D3DCompileFromFile(GetAssetFullPath(L"ParticleTile.hlsl").c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "CSCollectParticles", "cs_5_0", compileFlags, 0, &tileGatherCS, &errorBlob))
+        {
+            if (errorBlob)
+            {
+                OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+            }
+        }
+
+        CD3DX12_DEPTH_STENCIL_DESC depthStencilDesc(D3D12_DEFAULT);
+        depthStencilDesc.DepthEnable = FALSE;
+        depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+
+        // Additive blend state
+        CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
+        blendDesc.RenderTarget[0].BlendEnable = TRUE;
+        blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+        blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
+        blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+
+        // Describe and create the graphics pipeline state objects (PSO).
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_tileRootSignature.Get();
+        psoDesc.CS = CD3DX12_SHADER_BYTECODE(tileGatherCS.Get());
+
+        ThrowIfFailed(m_device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_tilePipelineState)));
+        NAME_D3D12_OBJECT(m_tilePipelineState);
+    }
+
+    {
+        // Offset per tile Resource
+
+        UINT tileCountX = (UINT)((float)m_width / 8.0f + 0.5f);
+        UINT tileCountY = (UINT)((float)m_height/ 8.0f + 0.5f);
+        UINT tileOffsetBufferSize = (tileCountX * tileCountY + 1) * sizeof(UINT);
+
+        // Create the resources for the tile process as well as the UAVs
+        ThrowIfFailed(m_device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(tileOffsetBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            nullptr,
+            IID_PPV_ARGS(&m_tileOffsets)
+        ));
+        NAME_D3D12_OBJECT(m_tileOffsets);
+
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uavDesc.Buffer.NumElements = tileCountX * tileCountY;
+        uavDesc.Buffer.FirstElement = 1;
+        uavDesc.Buffer.CounterOffsetInBytes = 0;
+        uavDesc.Buffer.StructureByteStride = sizeof(UINT);
+
+        CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandleOffsets(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::OffsetPerTilesUAV, m_cbvSrvDescriptorSize);
+        m_device->CreateUnorderedAccessView(m_tileOffsets.Get(), nullptr, &uavDesc, cpuHandleOffsets);
+
+        uavDesc.Buffer.NumElements = 1;
+        uavDesc.Buffer.FirstElement = 0;
+        CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandleCounter(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::OffsetCounterUAV, m_cbvSrvDescriptorSize);
+        m_device->CreateUnorderedAccessView(m_tileOffsets.Get(), nullptr, &uavDesc, cpuHandleCounter);
+    }
+
+    {
+        // Particle index buffer for tiles
+
+        UINT tileCountX = (UINT)((float)m_width / 8.0f + 0.5f);
+        UINT tileCountY = (UINT)((float)m_height / 8.0f + 0.5f);
+        UINT tileOffsetBufferSize = (tileCountX * tileCountY * MAX_PARTICLE_PER_TILE) * sizeof(UINT);
+
+        // Create the resources for the tile process as well as the UAVs
+        ThrowIfFailed(m_device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(tileOffsetBufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            nullptr,
+            IID_PPV_ARGS(&m_ParticleIndicesForTiles)
+        ));
+        NAME_D3D12_OBJECT(m_ParticleIndicesForTiles);
+
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uavDesc.Buffer.NumElements = tileCountX * tileCountY * MAX_PARTICLE_PER_TILE;
+        uavDesc.Buffer.FirstElement = 0;
+        uavDesc.Buffer.StructureByteStride = sizeof(UINT);
+
+        CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleIndicesForTilesUAV, m_cbvSrvDescriptorSize);
+        m_device->CreateUnorderedAccessView(m_ParticleIndicesForTiles.Get(), nullptr, &uavDesc, cpuHandle);
+    }
 
     // Close the command list and execute it to begin the initial GPU setup.
     ThrowIfFailed(m_commandList->Close());
@@ -817,6 +964,36 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
             D3D12_RESOURCE_STATE_COPY_SOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
 #endif
+
+    // Run the gather compute shader
+    m_commandListCompute->SetComputeRootSignature(m_tileRootSignature.Get());
+    m_commandListCompute->SetPipelineState(m_tilePipelineState.Get());
+
+    {
+        CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::StaticConstantBuffer, m_cbvSrvDescriptorSize);
+        m_commandListCompute->SetComputeRootDescriptorTable(0, cbvHandle);
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleSRV0 + readableBufferIndex, m_cbvSrvDescriptorSize);
+        m_commandListCompute->SetComputeRootDescriptorTable(1, srvHandle);
+
+        {
+            CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::OffsetPerTilesUAV, m_cbvSrvDescriptorSize);
+            m_commandListCompute->SetComputeRootDescriptorTable(2, uavHandle);
+        }
+        {
+            CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::OffsetPerTilesUAV, m_cbvSrvDescriptorSize);
+            m_commandListCompute->SetComputeRootDescriptorTable(3, uavHandle);
+        }
+        {
+            CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleIndicesForTilesUAV, m_cbvSrvDescriptorSize);
+            m_commandListCompute->SetComputeRootDescriptorTable(4, uavHandle);
+        }
+
+        UINT tileCountX = (UINT)((float)m_width / 8.0f + 0.5f);
+        UINT tileCountY = (UINT)((float)m_height / 8.0f + 0.5f);
+        m_commandListCompute->Dispatch(tileCountX * tileCountY, 1, 1);
+    }
+
 
     m_commandListCompute->Close();
 
