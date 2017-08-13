@@ -152,10 +152,28 @@ void DX12Particles::LoadPipeline()
 
 }
 
-void DX12Particles::CreateParticleBuffers()
+std::vector<DX12Particles::ParticleData> particleData;
+void DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
 {
-    std::vector<ParticleData> particleData;
     particleData.resize(ParticleBufferSize);
+
+    UINT nParticlesPerRow = (UINT)ceil(sqrt((float)ParticleBufferSize));
+
+    for(UINT i = 0; i < ParticleBufferSize; i++)
+    {
+        particleData[i].fTimeLeft = 30.0f;
+
+        float posX = (float)(i % nParticlesPerRow) / nParticlesPerRow;
+        posX = -1.0f + posX * 2 + 0.2f;
+
+        float posY = (float)(i / nParticlesPerRow) / nParticlesPerRow;
+        posY = 1.0f - posY * 2 - 0.2f;
+
+        particleData[i].pos.x = posX;
+        particleData[i].pos.y = posY;
+
+        particleData[i].color = XMFLOAT4(1, 0, 0, 1);
+    }
 
     const UINT bufferSize = sizeof(ParticleData) * ParticleBufferSize;
 
@@ -163,7 +181,7 @@ void DX12Particles::CreateParticleBuffers()
         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
         D3D12_HEAP_FLAG_NONE,
         &CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-        D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         nullptr,
         IID_PPV_ARGS(&m_particleBuffers[0])
     ));
@@ -176,30 +194,18 @@ void DX12Particles::CreateParticleBuffers()
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_DEST,
             nullptr,
             IID_PPV_ARGS(&m_particleBuffers[i])
         ));
         NAME_D3D12_OBJECT_INDEXED(m_particleBuffers, i);
     }
 
-    ThrowIfFailed(m_device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&m_particleBufferUpload)
-    ));
-
-    NAME_D3D12_OBJECT(m_particleBufferUpload);
-
-
     D3D12_SUBRESOURCE_DATA particleSubresourceData;
     particleSubresourceData.pData = reinterpret_cast<void*>(particleData.data());
     particleSubresourceData.SlicePitch = bufferSize;
-    particleSubresourceData.RowPitch = bufferSize;    
-    UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[0].Get(), m_particleBufferUpload.Get(), 0, 0, 1, &particleSubresourceData);
+    particleSubresourceData.RowPitch = bufferSize;
+    UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[1].Get(), particleUploadBuffer, 0, 0, 1, &particleSubresourceData);
 
     for (int i = 0; i < FrameCount; i++)
     {
@@ -487,8 +493,24 @@ void DX12Particles::LoadAssets()
         NAME_D3D12_OBJECT_INDEXED(m_renderTargets, i);
     }
 
-    // Create a two particle buffers. The first one with data, the second with nothing in it.
-    CreateParticleBuffers();
+    // Create a two particle buffers. 
+    // The initial values go to second one because that's what we read in the update phase.
+    // This is because we swap the buffers after the emit phase.
+    UINT bufferSize = sizeof(ParticleData) * ParticleBufferSize;
+
+    ComPtr<ID3D12Resource> particleUploadBuffer;
+    ThrowIfFailed(m_device->CreateCommittedResource(
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+        D3D12_HEAP_FLAG_NONE,
+        &CD3DX12_RESOURCE_DESC::Buffer(bufferSize),
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&particleUploadBuffer)
+    ));
+
+    NAME_D3D12_OBJECT(particleUploadBuffer);
+
+    CreateParticleBuffers(particleUploadBuffer.Get());
 
     // Create a static constant buffer for the geometry shader
     ComPtr<ID3D12Resource> constantBufferUpload;
@@ -916,6 +938,7 @@ void DX12Particles::OnRender()
     // Present and update the frame index for the next frame.
     ThrowIfFailed(m_swapChain->Present(0, 0));
     WaitForFence(true, false);
+    WaitForFence(true, true);
 
 #ifdef DEBUG_PARTICLE_DATA
     DeadListBufferData* deadListBufferData;
