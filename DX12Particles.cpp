@@ -903,21 +903,14 @@ void DX12Particles::OnRender()
 {
     if (m_computeFirst)
     {
+        // This one seems to be slightly faster
         RunComputeShader(m_frameIndex, (m_frameIndex + 1) % FrameCount);
-
-        // @TODO: Here I can just wait on the GPU.
-        //        Investigate why on earth the version with the CPU waiting is faster than the GPU wait. 
-        //		  Even in debug where the CPU is even slower compared to the GPU.
-        WaitForFence(!m_waitForComputeOnGPU, true);
-
         RenderParticles((m_frameIndex + 1) % FrameCount);
     }
     else
     {
         RenderParticles(m_frameIndex);
         RunComputeShader(m_frameIndex, (m_frameIndex + 1) % FrameCount);
-    
-        WaitForFence(!m_waitForComputeOnGPU, true);
     }
 
     // Present and update the frame index for the next frame.

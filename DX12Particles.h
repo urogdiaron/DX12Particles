@@ -17,7 +17,7 @@
 
 using namespace DirectX;
 
-#define DEBUG_PARTICLE_DATA
+//#define DEBUG_PARTICLE_DATA
 
 // Note that while ComPtr is used to manage the lifetime of resources on the CPU,
 // it has no understanding of the lifetime of resources on the GPU. Apps must account
@@ -31,7 +31,7 @@ class DX12Particles : public DXSample
 public:
 	DX12Particles(UINT width, UINT height, std::wstring name);
 
-    static const UINT ParticleBufferSize = 5000;
+    static const UINT ParticleBufferSize = 500000;
     static const int FrameCount = 2;
 
 	virtual void OnInit();
