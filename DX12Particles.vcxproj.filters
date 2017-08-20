@@ -64,6 +64,9 @@
     <ClInclude Include="DX12Particles.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="TileConstants.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />

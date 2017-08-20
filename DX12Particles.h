@@ -45,7 +45,7 @@ public:
 	virtual void OnKeyUp(UINT8 key);
 
     void LoadPipeline();
-    void CreateParticleBuffers(ID3D12Resource* pParticleUpdateBuffer);
+    UINT CreateParticleBuffers(ID3D12Resource* pParticleUpdateBuffer);
     void LoadAssets();
 
 	struct ParticleVertex
@@ -74,6 +74,8 @@ public:
         OffsetCounterUAV,
         OffsetPerTilesUAV,
         ParticleIndicesForTilesUAV,
+        TileRenderDebugUAV,
+        TileRenderDebugSRV,
         Count
     };
 
@@ -116,10 +118,19 @@ public:
     ComPtr<ID3D12PipelineState> m_computePipelineStates[(int)ComputePass::Count] = {};
 	ComPtr<ID3D12GraphicsCommandList> m_commandListCompute;
 
+    enum class TileComputePass
+    {
+        ResetCounter,
+        GatherParticles,
+        Count
+    };
+
     ComPtr<ID3D12RootSignature> m_tileRootSignature;
-    ComPtr<ID3D12PipelineState> m_tilePipelineState;
+    ComPtr<ID3D12PipelineState> m_tilePipelineStates[(int)TileComputePass::Count];
     ComPtr<ID3D12Resource> m_tileOffsets;
     ComPtr<ID3D12Resource> m_ParticleIndicesForTiles;
+
+    ComPtr<ID3D12Resource> m_TileDebugRenderTarget;
 
 	// App resources.
 	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
