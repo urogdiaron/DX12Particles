@@ -408,13 +408,13 @@ void DX12Particles::LoadAssets()
         depthStencilDesc.DepthEnable = FALSE;
         depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
 
-        // Additive blend state
         CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
         blendDesc.RenderTarget[0].BlendEnable = TRUE;
         blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
         blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
         blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
         blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+        // Additive blend state
 
         // Describe and create the graphics pipeline state objects (PSO).
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -727,19 +727,7 @@ void DX12Particles::LoadAssets()
                 OutputDebugStringA((char*)errorBlob->GetBufferPointer());
             }
         }
-
-        CD3DX12_DEPTH_STENCIL_DESC depthStencilDesc(D3D12_DEFAULT);
-        depthStencilDesc.DepthEnable = FALSE;
-        depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-
-        // Additive blend state
-        CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
-        blendDesc.RenderTarget[0].BlendEnable = TRUE;
-        blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-        blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
-        blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
-        blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-
+        
         // Describe and create the graphics pipeline state objects (PSO).
         D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_tileRootSignature.Get();
@@ -845,13 +833,127 @@ void DX12Particles::LoadAssets()
             srvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
             srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
             srvDesc.Texture2D.MipLevels = 1;
-            srvDesc.Texture2D.MostDetailedMip = 1;
+            srvDesc.Texture2D.MostDetailedMip = 0;
 
             CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::TileRenderDebugSRV, m_cbvSrvDescriptorSize);
             m_device->CreateShaderResourceView(m_TileDebugRenderTarget.Get(), &srvDesc, cpuHandle);
         }
     }
     
+
+    ///////////////////////////////////////////////////////////////////////////////
+    {
+        //Create Root signature for debug texture render
+        D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
+
+        // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
+        featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+
+        if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        {
+            featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        }
+
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
+
+        CD3DX12_ROOT_PARAMETER1 rootParameters[1];
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
+
+        CD3DX12_STATIC_SAMPLER_DESC samplerDescs[1];
+        samplerDescs[0].Init(0, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
+
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, _countof(samplerDescs), samplerDescs);
+
+        ComPtr<ID3DBlob> signature;
+        ComPtr<ID3DBlob> error;
+
+        D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error);
+        if (error)
+        {
+            OutputDebugStringA((char*)error->GetBufferPointer());
+        }
+        ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_debugRenderRootSignature)));
+        NAME_D3D12_OBJECT(m_debugRenderRootSignature);
+    }
+
+    {
+        // Create pipeline state objects for the tile gathering process
+        ComPtr<ID3DBlob> debugRenderShaderVS;
+        ComPtr<ID3DBlob> debugRenderShaderGS;
+        ComPtr<ID3DBlob> debugRenderShaderPS;
+
+#if defined(_DEBUG)
+        // Enable better shader debugging with the graphics debugging tools.
+        UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+        UINT compileFlags = 0;
+#endif
+
+        ComPtr<ID3DBlob> errorBlob = nullptr;
+
+        if FAILED(D3DCompileFromFile(GetAssetFullPath(L"TextureRender.hlsl").c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "VSTextureRender", "vs_5_0", compileFlags, 0, &debugRenderShaderVS, &errorBlob))
+        {
+            if (errorBlob)
+            {
+                OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+            }
+        }
+
+        if FAILED(D3DCompileFromFile(GetAssetFullPath(L"TextureRender.hlsl").c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "GSTextureRender", "gs_5_0", compileFlags, 0, &debugRenderShaderGS, &errorBlob))
+        {
+            if (errorBlob)
+            {
+                OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+            }
+        }
+
+        // @Incomplete: Precompile the shaders! See how to set up compile flags that way.
+        if FAILED(D3DCompileFromFile(GetAssetFullPath(L"TextureRender.hlsl").c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PSTextureRender", "ps_5_0", compileFlags, 0, &debugRenderShaderPS, &errorBlob))
+        {
+            if (errorBlob)
+            {
+                OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+            }
+        }
+
+        CD3DX12_DEPTH_STENCIL_DESC depthStencilDesc(D3D12_DEFAULT);
+        depthStencilDesc.DepthEnable = FALSE;
+        depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+
+        // Alpha blend blend state
+        CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
+        blendDesc.RenderTarget[0].BlendEnable = TRUE;
+        blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+        blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+        blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+        blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+        // Describe and create the graphics pipeline state objects (PSO).
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_debugRenderRootSignature.Get();
+        psoDesc.VS = CD3DX12_SHADER_BYTECODE(debugRenderShaderVS.Get());
+        psoDesc.GS = CD3DX12_SHADER_BYTECODE(debugRenderShaderGS.Get());
+        psoDesc.PS = CD3DX12_SHADER_BYTECODE(debugRenderShaderPS.Get());
+        psoDesc.InputLayout = { nullptr, 0 };
+        psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+        psoDesc.BlendState = blendDesc;
+        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+        psoDesc.NumRenderTargets = 1;
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        psoDesc.SampleDesc.Count = 1;
+
+        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_debugRenderPipelineState)));
+        NAME_D3D12_OBJECT(m_debugRenderPipelineState);
+    }
+
 
     // Close the command list and execute it to begin the initial GPU setup.
     ThrowIfFailed(m_commandList->Close());
@@ -1162,6 +1264,50 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     PIXEndEvent(m_commandQueue.Get());
 }
 
+void DX12Particles::RenderDebugTexture()
+{
+    PIXBeginEvent(m_commandQueue.Get(), 0, L"RenderDebug");
+
+    // Record all the commands we need to render the scene into the command list.
+    ThrowIfFailed(m_commandAllocator->Reset());
+
+    ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_debugRenderPipelineState.Get()));
+
+    m_commandList->SetGraphicsRootSignature(m_debugRenderRootSignature.Get());
+
+    ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
+    m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+
+    m_commandList->SetGraphicsRootDescriptorTable(0, CD3DX12_GPU_DESCRIPTOR_HANDLE(
+        m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::TileRenderDebugSRV, m_cbvSrvDescriptorSize
+    ));
+
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+    m_commandList->RSSetScissorRects(1, &m_scissorRect);
+
+    // Indicate that the back buffer will be used as a render target.
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+    m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+    // Record commands.
+    const float clearColor[] = { 0.0f, 0.0f, 0.3f, 0.0f };
+    m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+
+    m_commandList->RSSetViewports(1, &m_viewport);
+    m_commandList->DrawInstanced(1, 1, 0, 0);
+    
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+    m_commandList->Close();
+
+    // Execute the command list.
+    ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+    PIXEndEvent(m_commandQueue.Get());
+}
+
 // Render the scene.
 void DX12Particles::OnRender()
 {
@@ -1169,11 +1315,25 @@ void DX12Particles::OnRender()
     {
         // This one seems to be slightly faster
         RunComputeShader(m_frameIndex, (m_frameIndex + 1) % FrameCount);
-        RenderParticles((m_frameIndex + 1) % FrameCount);
+        if(m_bDebug)
+        {
+            RenderDebugTexture();
+        }
+        else
+        {
+            RenderParticles((m_frameIndex + 1) % FrameCount);
+        }
     }
     else
     {
-        RenderParticles(m_frameIndex);
+        if (m_bDebug)
+        {
+            RenderDebugTexture();
+        }
+        else
+        {
+            RenderParticles(m_frameIndex);
+        }
         RunComputeShader(m_frameIndex, (m_frameIndex + 1) % FrameCount);
     }
 

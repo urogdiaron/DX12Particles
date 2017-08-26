@@ -17,13 +17,16 @@ groupshared uint nParticleCountTotal;
 [numthreads(MAX_PARTICLE_PER_TILE, 1, 1)]
 void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
+    // Resetting the counters
     if (GTid.x == 0)
     {
         nParticleCountForCurrentTile = 0;
-        nParticleCountTotal = g_deadList[0]; // This doesnt work for some reason
+        nParticleCountTotal = g_deadList[0];
     }
 
     GroupMemoryBarrierWithGroupSync();
+
+    // Culling the particles
 
     uint nParticlePerThread = ceil((float)nParticleCountTotal / MAX_PARTICLE_PER_TILE);
     uint nParticleStartIndex = nParticlePerThread * GTid.x;
@@ -52,6 +55,8 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 
     if (GTid.x == 0)
     {
+        // Rendering debug texture
+        // @Performance This could be done using multiple threads or preferably a different compute shader
         float4 debugColor = nParticleCountForCurrentTile ? float4(0.2, 0.6, 0.2, 1.0) : float4(0.6, 0.2, 0.2, 1.0);
         //float4 debugColor = float4(topLeft.xy, bottomRight.xy);
         //float4 debugColor = ((float)nParticleCountTotal / 100.0).xxxx;
@@ -63,17 +68,18 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
             }
         }
 
+        // Output culled particles to global array
         if (nParticleCountForCurrentTile)
         {
             uint nOriginalValue;
             InterlockedAdd(g_offsetCounter[0], nParticleCountForCurrentTile, nOriginalValue);
             g_offsetPerTiles[Gid.xy] = uint2(nOriginalValue, nParticleCountForCurrentTile);
 
-            // @TODO this loop can be separated for multiple threads
+            // @Performance This loop can be separated for multiple threads
             for (uint iParticle = 0; iParticle < nParticleCountForCurrentTile; iParticle++)
             {
                 g_particleIndicesForTiles[nOriginalValue + iParticle] = aParticleIndices[iParticle];
             }
         }
-    }    
+    }
 }

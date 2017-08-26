@@ -39,6 +39,7 @@ public:
     void RunComputeShader(int readableBufferIndex, int writableBufferIndex);
     void WaitForFence(bool waitOnCpu, bool bCompute);
     void RenderParticles(int readableBufferIndex);
+    void RenderDebugTexture();
     virtual void OnRender();
 	virtual void OnDestroy();
 	virtual void OnKeyDown(UINT8 key);
@@ -131,6 +132,9 @@ public:
     ComPtr<ID3D12Resource> m_ParticleIndicesForTiles;
 
     ComPtr<ID3D12Resource> m_TileDebugRenderTarget;
+
+    ComPtr<ID3D12RootSignature> m_debugRenderRootSignature;
+    ComPtr<ID3D12PipelineState> m_debugRenderPipelineState;
 
 	// App resources.
 	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];

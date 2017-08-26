@@ -64,9 +64,6 @@
     <ClInclude Include="DX12Particles.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TileConstants.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
@@ -87,5 +84,13 @@
     <CustomBuild Include="ParticleTile.hlsl">
       <Filter>Assets\Shaders</Filter>
     </CustomBuild>
+    <CustomBuild Include="TileConstants.h">
+      <Filter>Header Files</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="TextureRender.hlsl">
+      <Filter>Assets\Shaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>
