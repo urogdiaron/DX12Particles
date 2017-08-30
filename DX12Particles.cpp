@@ -160,6 +160,8 @@ UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
 
     UINT nParticlesPerRow = (UINT)ceil(sqrt((float)ParticleBufferSize));
 
+    XMFLOAT4 colors[] = { XMFLOAT4(1, 0, 0, 1), XMFLOAT4(0, 1, 0, 1), XMFLOAT4(0, 0, 1, 1), XMFLOAT4(1, 0, 1, 1), XMFLOAT4(1, 1, 0, 1), XMFLOAT4(0, 1, 1, 1) };
+
     for(UINT i = 0; i < ParticleBufferSize; i++)
     {
         particleData[i].fTimeLeft = 30.0f;
@@ -172,8 +174,9 @@ UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
 
         particleData[i].pos.x = posX;
         particleData[i].pos.y = posY;
+        particleData[i].velocity.x = 0.01f;
 
-        particleData[i].color = XMFLOAT4(1, 0, 0, 1);
+        particleData[i].color = colors[i % (sizeof(colors) / sizeof(XMFLOAT4))];
 
         PrecreatedParticleCount++;
     }
@@ -710,6 +713,7 @@ void DX12Particles::LoadAssets()
     {
         // Create pipeline state objects for the tile gathering process
         ComPtr<ID3DBlob> tileShader;
+        ComPtr<ID3DBlob> tileRasterizerShader;
 
 #if defined(_DEBUG)
         // Enable better shader debugging with the graphics debugging tools.
@@ -727,6 +731,14 @@ void DX12Particles::LoadAssets()
                 OutputDebugStringA((char*)errorBlob->GetBufferPointer());
             }
         }
+
+        if FAILED(D3DCompileFromFile(GetAssetFullPath(L"ParticleTile.hlsl").c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "CSRasterizeParticles", "cs_5_0", compileFlags, 0, &tileRasterizerShader, &errorBlob))
+        {
+            if (errorBlob)
+            {
+                OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+            }
+        }
         
         // Describe and create the graphics pipeline state objects (PSO).
         D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
@@ -735,6 +747,11 @@ void DX12Particles::LoadAssets()
 
         ThrowIfFailed(m_device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_tilePipelineStates[(int)TileComputePass::GatherParticles])));
         NAME_D3D12_OBJECT(m_tilePipelineStates[(int)TileComputePass::GatherParticles]);
+
+        psoDesc.CS = CD3DX12_SHADER_BYTECODE(tileRasterizerShader.Get());
+
+        ThrowIfFailed(m_device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_tilePipelineStates[(int)TileComputePass::RasterizeParticles])));
+        NAME_D3D12_OBJECT(m_tilePipelineStates[(int)TileComputePass::RasterizeParticles]);
 
 
         if FAILED(D3DCompileFromFile(GetAssetFullPath(L"ParticleTile.hlsl").c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "CSResetTileOffsetCounter", "cs_5_0", compileFlags, 0, &tileShader, &errorBlob))
@@ -1155,6 +1172,9 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
         UINT tileCountY = (UINT)((float)m_height / TILE_SIZE_IN_PIXELS + 0.5f);
 
         m_commandListCompute->SetPipelineState(m_tilePipelineStates[(int)TileComputePass::GatherParticles].Get());
+        m_commandListCompute->Dispatch(tileCountX, tileCountY, 1);
+
+        m_commandListCompute->SetPipelineState(m_tilePipelineStates[(int)TileComputePass::RasterizeParticles].Get());
         m_commandListCompute->Dispatch(tileCountX, tileCountY, 1);
 
         m_commandListCompute->SetPipelineState(m_tilePipelineStates[(int)TileComputePass::ResetCounter].Get());

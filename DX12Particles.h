@@ -123,6 +123,7 @@ public:
     {
         ResetCounter,
         GatherParticles,
+        RasterizeParticles,
         Count
     };
 
