@@ -59,7 +59,9 @@ public:
 		XMFLOAT3 pos;
         float fTimeLeft;
         XMFLOAT4 velocity;
-        XMFLOAT4 color;
+		XMFLOAT4 color;
+		XMFLOAT4 scale;
+		XMFLOAT4 rotate;
 	};
 
     enum class DescOffset

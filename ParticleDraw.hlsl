@@ -10,6 +10,8 @@ struct VSParticleDrawOut
 {
     float4 pos			: POSITION;
     float4 color		: COLOR;
+	float4 scale		: SCALE;
+	float4 rotate		: ROTATION;
 };
 
 struct GSParticleDrawOut
@@ -23,11 +25,6 @@ struct PSParticleDrawIn
 {
     float2 tex			: TEXCOORD0;
     float4 color		: COLOR;
-};
-
-cbuffer cb1
-{
-    static float g_fParticleRad = 0.01f;
 };
 
 cbuffer cbImmutable
@@ -59,6 +56,8 @@ VSParticleDrawOut VSParticleDraw(uint id : SV_VERTEXID)
     PosVelo particleData = g_bufPosVelo[id];
     output.pos = float4(particleData.pos.xyz, particleData.timeLeft);
     output.color = particleData.color;
+	output.scale = particleData.scale;
+	output.rotate = particleData.rotate;
 
     return output;
 }
@@ -78,7 +77,8 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
     // Emit two new triangles.
     for (int i = 0; i < 4; i++)
     {
-        float3 position = g_positions[i] * g_fParticleRad;
+        float3 position = g_positions[i];
+		position.xy *= input[0].scale.xy;
         position.x /= g_fAspectRatio;
         position += input[0].pos.xyz;
 
@@ -97,8 +97,8 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
 float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 {
     float intensity = 0.5f - length(float2(0.5f, 0.5f) - input.tex);
-intensity = clamp(intensity, 0.0f, 0.5f) * 2.0f;
-return float4(input.color.rgb, intensity);
+	intensity = clamp(intensity, 0.0f, 0.5f) * 2.0f;
+	return float4(input.color.rgb * intensity, intensity);
 }
 
 float GetRandomNumber(inout uint rng_state)

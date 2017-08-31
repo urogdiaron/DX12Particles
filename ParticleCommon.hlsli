@@ -3,7 +3,9 @@ struct PosVelo
     float3 pos;
     float  timeLeft;
     float4 velocity;
-    float4 color;
+	float4 color;
+	float4 scale;
+	float4 rotate;
 };
 
 StructuredBuffer<PosVelo> g_bufPosVelo		 : register(t0);	// SRV

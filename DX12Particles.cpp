@@ -155,6 +155,19 @@ void DX12Particles::LoadPipeline()
 std::vector<DX12Particles::ParticleData> particleData;
 UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
 {
+	auto fnGetRandomNumber = [&]() -> float
+	{
+		auto dist = std::uniform_real_distribution<float>{};
+		float ret = dist(m_randomNumberEngine);
+		return ret;
+	};
+
+	auto fnGetRandomFloat = [&](float from, float to) -> float
+	{
+		float fRnd = fnGetRandomNumber();
+		return fRnd * (to - from) + from;
+	};
+
     UINT PrecreatedParticleCount = 0;
     particleData.resize(ParticleBufferSize);
 
@@ -175,6 +188,8 @@ UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
         particleData[i].pos.x = posX;
         particleData[i].pos.y = posY;
         particleData[i].velocity.x = 0.01f;
+		particleData[i].scale = XMFLOAT4(fnGetRandomFloat(0.01f, 0.06f), fnGetRandomFloat(0.01f, 0.06f), 0.0f, 0.0f);
+		particleData[i].rotate = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
 
         particleData[i].color = colors[i % (sizeof(colors) / sizeof(XMFLOAT4))];
 
@@ -343,9 +358,9 @@ void DX12Particles::LoadAssets()
         CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
         blendDesc.RenderTarget[0].BlendEnable = TRUE;
         blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-        blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
-        blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
-        blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+		blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
+		blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
 
         // Describe and create the graphics pipeline state objects (PSO).
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
