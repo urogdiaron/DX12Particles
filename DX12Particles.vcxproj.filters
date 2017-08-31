@@ -87,10 +87,8 @@
     <CustomBuild Include="TileConstants.h">
       <Filter>Header Files</Filter>
     </CustomBuild>
-  </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="TextureRender.hlsl">
+    <CustomBuild Include="TextureRender.hlsl">
       <Filter>Assets\Shaders</Filter>
-    </FxCompile>
+    </CustomBuild>
   </ItemGroup>
 </Project>

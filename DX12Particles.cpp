@@ -1052,8 +1052,6 @@ void DX12Particles::OnUpdate()
 
 void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBufferIndex)
 {
-    PIXBeginEvent(m_commandQueueCompute.Get(), 0, L"Compute");
-
     ThrowIfFailed(m_commandAllocatorCompute->Reset());
     ThrowIfFailed(m_commandListCompute->Reset(m_commandAllocatorCompute.Get(), m_computePipelineStates[(int)ComputePass::Generate].Get()));
 
@@ -1186,8 +1184,6 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
 
     ID3D12CommandList* ppCommandLists[] = { m_commandListCompute.Get() };
     m_commandQueueCompute->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-    PIXEndEvent(m_commandQueueCompute.Get());
 }
 
 void DX12Particles::WaitForFence(bool waitOnCpu, bool bCompute)
@@ -1223,8 +1219,6 @@ void DX12Particles::WaitForFence(bool waitOnCpu, bool bCompute)
 
 void DX12Particles::RenderParticles(int readableBufferIndex)
 {
-    PIXBeginEvent(m_commandQueue.Get(), 0, L"Render");
-
     // Record all the commands we need to render the scene into the command list.
     ThrowIfFailed(m_commandAllocator->Reset());
 
@@ -1280,14 +1274,10 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     // Execute the command list.
     ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
     m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-    PIXEndEvent(m_commandQueue.Get());
 }
 
 void DX12Particles::RenderDebugTexture()
 {
-    PIXBeginEvent(m_commandQueue.Get(), 0, L"RenderDebug");
-
     // Record all the commands we need to render the scene into the command list.
     ThrowIfFailed(m_commandAllocator->Reset());
 
@@ -1324,8 +1314,6 @@ void DX12Particles::RenderDebugTexture()
     // Execute the command list.
     ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
     m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-    PIXEndEvent(m_commandQueue.Get());
 }
 
 // Render the scene.
