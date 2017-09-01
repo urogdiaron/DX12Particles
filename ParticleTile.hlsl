@@ -28,7 +28,7 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 
     GroupMemoryBarrierWithGroupSync();
 
-    // Culling the particles
+    // Culling the particles using the Separating Axis Theorem
 
     uint nParticlePerThread = ceil((float)nParticleCountTotal / MAX_PARTICLE_PER_TILE);
     uint nParticleStartIndex = nParticlePerThread * GTid.x;
@@ -41,14 +41,94 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
     float2 topLeft = ((float2)tileTopLeftPointPx / g_Resolution) * float2(2, -2) - float2(1, -1);
     float2 bottomRight = ((float2)tileBottomRightPointPx / g_Resolution) * float2(2, -2) - float2(1, -1);
 
+	float2 tileCorners[4];
+	tileCorners[0] = topLeft;
+	tileCorners[1] = float2(bottomRight.x, topLeft.y);
+	tileCorners[2] = bottomRight;
+	tileCorners[3] = float2(topLeft.x, bottomRight.y);
+
     for (uint iParticle = nParticleStartIndex; iParticle < nParticleEndIndex; iParticle++)
     {
         PosVelo particle = g_bufPosVelo[iParticle];
         float2 p = particle.pos.xy;
-        if (p.x >= (topLeft.x - fParticleSize) && 
-            p.x < (bottomRight.x + fParticleSize) && 
-            p.y >= (bottomRight.y - fParticleSize) && 
-            p.y < (topLeft.y + fParticleSize))
+
+		float rotate = particle.rotate.x;
+		float rotSin, rotCos;
+		sincos(rotate, rotSin, rotCos);
+
+		// Note the scale parameter means the half size
+		float2 particleTopLeft = p - particle.scale.xy;
+		float2 particleBottomRight = p + particle.scale.xy;
+
+		// Particle corners in cw order
+		float2 particleCorners[4];
+		particleCorners[0] = particleTopLeft;
+		particleCorners[1] = float2(particleBottomRight.x, particleTopLeft.y);
+		particleCorners[2] = particleBottomRight;
+		particleCorners[3] = float2(particleTopLeft.x, particleBottomRight.y);
+
+#if 0
+		for (int iCorner = 0; iCorner < 4; iCorner++)
+		{
+			float2 originalPosition = particleCorners[iCorner];
+			particleCorners[iCorner].x = originalPosition.x * rotCos - originalPosition.y * rotSin;
+			particleCorners[iCorner].y = originalPosition.x * rotSin + originalPosition.y * rotCos;
+		}
+#endif
+
+		bool bTileAxisX = false;
+		bool bTileAxisY = false;
+
+		bool bParticleAxisX = false;
+		bool bParticleAxisY = false;
+
+		{
+			// Check with the tile's axis (which is just the xy coordinates)
+			// The y min value is in the bottomRight because it goes from bottom up
+			float2 tilePosMin = float2(topLeft.x, bottomRight.y);
+			float2 tilePosMax = float2(bottomRight.x, topLeft.y);
+
+			float2 particlePosMin = min(min(particleCorners[0], particleCorners[1]), min(particleCorners[2], particleCorners[3]));
+			float2 particlePosMax = max(max(particleCorners[0], particleCorners[1]), max(particleCorners[2], particleCorners[3]));
+
+			bTileAxisX = particlePosMin.x > tilePosMax.x || tilePosMin.x > particlePosMax.x;
+			bTileAxisY = particlePosMin.y > tilePosMax.y || tilePosMin.y > particlePosMax.y;
+		}
+
+#if 0
+		{
+			// Now check the particle's axises
+
+			// They actually dont have to be normalized
+			// Alternatively we could generate these directly from the rotSin and rotCos
+			float2 normal1 = particleCorners[0] - particleCorners[1];
+			float2 normal2 = particleCorners[1] - particleCorners[2];
+
+			float2 tileCornersProjected[4];
+			for (int iCorner = 0; iCorner < 4; iCorner++)
+			{
+				tileCornersProjected[iCorner] = float2(dot(tileCorners[iCorner], normal1), dot(tileCorners[iCorner], normal2));
+			}
+
+			float2 particleCornersProjected[4];
+			for (int iCorner = 0; iCorner < 4; iCorner++)
+			{
+				particleCornersProjected[iCorner] = float2(dot(particleCorners[iCorner], normal1), dot(particleCorners[iCorner], normal2));
+			}
+
+			float2 tilePosMin = min(min(tileCornersProjected[0], tileCornersProjected[1]), min(tileCornersProjected[2], tileCornersProjected[3]));
+			float2 tilePosMax = max(max(tileCornersProjected[0], tileCornersProjected[1]), max(tileCornersProjected[2], tileCornersProjected[3]));
+
+			float2 particlePosMin = min(min(particleCornersProjected[0], particleCornersProjected[1]), min(particleCornersProjected[2], particleCornersProjected[3]));
+			float2 particlePosMax = max(max(particleCornersProjected[0], particleCornersProjected[1]), max(particleCornersProjected[2], particleCornersProjected[3]));
+
+			bParticleAxisX = particlePosMin.x > tilePosMax.x || tilePosMin.x > particlePosMax.x;
+			bParticleAxisY = particlePosMin.y > tilePosMax.y || tilePosMin.y > particlePosMax.y;
+		}
+#endif
+
+
+        if(bTileAxisX && bTileAxisY /*&& bParticleAxisX && bParticleAxisY*/)
         {
             uint nPrevCount;
             InterlockedAdd(nParticleCountForCurrentTile, 1, nPrevCount);
@@ -62,14 +142,14 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
     if (GTid.x == 0)
     {
         // Rendering debug texture
-        /*float4 debugColor = nParticleCountForCurrentTile ? float4(0.2, 0.6, 0.2, 1.0) : float4(0.6, 0.2, 0.2, 1.0);
+        float4 debugColor = nParticleCountForCurrentTile ? float4(0.2, 0.6, 0.2, 1.0) : float4(0.6, 0.2, 0.2, 1.0);
         for (uint x = tileTopLeftPointPx.x; x < tileBottomRightPointPx.x - 1; x++)
         {
             for (uint y = tileTopLeftPointPx.y; y < tileBottomRightPointPx.y - 1; y++)
             {
                 g_OutputTexture[uint2(x, y)] = debugColor;
             }
-        }*/
+        }
 
         // Output culled particles to global array
         if (nParticleCountForCurrentTile)
@@ -94,6 +174,8 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 [numthreads(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS, 1)]
 void CSRasterizeParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
+	return;
+
     uint nWidth, nHeight;
     g_OutputTexture.GetDimensions(nWidth, nHeight);
     if (DTid.x >= nWidth || DTid.y >= nHeight)

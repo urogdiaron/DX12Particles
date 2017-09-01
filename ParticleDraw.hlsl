@@ -74,11 +74,19 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
     if (input[0].pos.w == 0.0)
         return;
 
+	float rotSin, rotCos;
+	sincos(input[0].rotate.x, rotSin, rotCos);
+
     // Emit two new triangles.
     for (int i = 0; i < 4; i++)
     {
         float3 position = g_positions[i];
 		position.xy *= input[0].scale.xy;
+		
+		float2 originalPosition = position.xy;
+		position.x = originalPosition.x * rotCos - originalPosition.y * rotSin;
+		position.y = originalPosition.x * rotSin + originalPosition.y * rotCos;
+
         position.x /= g_fAspectRatio;
         position += input[0].pos.xyz;
 
@@ -96,9 +104,7 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
 //
 float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 {
-    float intensity = 0.5f - length(float2(0.5f, 0.5f) - input.tex);
-	intensity = clamp(intensity, 0.0f, 0.5f) * 2.0f;
-	return float4(input.color.rgb * intensity, intensity);
+	return float4(input.color.rgb, 1);
 }
 
 float GetRandomNumber(inout uint rng_state)

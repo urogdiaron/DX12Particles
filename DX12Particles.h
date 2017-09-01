@@ -30,6 +30,7 @@ class DX12Particles : public DXSample
 {
 public:
 	DX12Particles(UINT width, UINT height, std::wstring name);
+	~DX12Particles();
 
     static const UINT ParticleBufferSize = 50;
     static const int FrameCount = 2;
@@ -91,8 +92,8 @@ public:
 	// Pipeline objects.
 	CD3DX12_VIEWPORT m_viewport;
 	CD3DX12_RECT m_scissorRect;
-	ComPtr<IDXGISwapChain3> m_swapChain;
 	ComPtr<ID3D12Device> m_device;
+	ComPtr<IDXGISwapChain3> m_swapChain;
 	ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
 
 	ComPtr<ID3D12DescriptorHeap> m_rtvHeap;

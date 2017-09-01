@@ -12,6 +12,8 @@
 #include "stdafx.h"
 #include <sstream>
 #include <string>
+#include <initguid.h>
+#include <dxgidebug.h>
 #include "DX12Particles.h"
 #include "TileConstants.h"
 
@@ -28,6 +30,15 @@ DX12Particles::DX12Particles(UINT width, UINT height, std::wstring name) :
 {
     std::random_device r;
     m_randomNumberEngine.seed(std::seed_seq{ r(), r(), r(), r(), r() });
+}
+
+DX12Particles::~DX12Particles()
+{
+	/*ComPtr<IDXGIDebug1> dxgiDebug;
+	if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&dxgiDebug))))
+	{
+		dxgiDebug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_FLAGS(DXGI_DEBUG_RLO_DETAIL));
+	}*/
 }
 
 void DX12Particles::OnInit()
@@ -57,7 +68,6 @@ void DX12Particles::LoadPipeline()
     	}
     }
 #endif
-
     ComPtr<IDXGIFactory4> factory;
     ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory)));
 
@@ -162,7 +172,7 @@ UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
 		return ret;
 	};
 
-	auto fnGetRandomFloat = [&](float from, float to) -> float
+	auto fnGetRandomFloatInRange = [&](float from, float to) -> float
 	{
 		float fRnd = fnGetRandomNumber();
 		return fRnd * (to - from) + from;
@@ -177,7 +187,7 @@ UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
 
     for(UINT i = 0; i < ParticleBufferSize; i++)
     {
-        particleData[i].fTimeLeft = 30.0f;
+        particleData[i].fTimeLeft = 9999999.0f;
 
         float posX = (float)(i % nParticlesPerRow) / nParticlesPerRow;
         posX = -1.0f + posX * 2 + 0.2f;
@@ -188,8 +198,8 @@ UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
         particleData[i].pos.x = posX;
         particleData[i].pos.y = posY;
         particleData[i].velocity.x = 0.01f;
-		particleData[i].scale = XMFLOAT4(fnGetRandomFloat(0.01f, 0.06f), fnGetRandomFloat(0.01f, 0.06f), 0.0f, 0.0f);
-		particleData[i].rotate = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+		particleData[i].scale = XMFLOAT4(fnGetRandomFloatInRange(0.01f, 0.06f), fnGetRandomFloatInRange(0.01f, 0.06f), 0.0f, 0.0f);
+		particleData[i].rotate = XMFLOAT4(fnGetRandomFloatInRange(-XM_PI, XM_PI), 0.0f, 0.0f, 0.0f);
 
         particleData[i].color = colors[i % (sizeof(colors) / sizeof(XMFLOAT4))];
 

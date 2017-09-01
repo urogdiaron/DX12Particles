@@ -71,6 +71,7 @@ void CSUpdate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GT
     }
 
     particle.pos.xyz += particle.velocity.xyz * g_fElapsedTime;
+	particle.rotate.x += g_fElapsedTime * 0.5f;
 
     if (particle.pos.x < -1)
     {
