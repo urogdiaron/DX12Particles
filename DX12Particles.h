@@ -17,7 +17,7 @@
 
 using namespace DirectX;
 
-#define DEBUG_PARTICLE_DATA
+//#define DEBUG_PARTICLE_DATA
 
 // Note that while ComPtr is used to manage the lifetime of resources on the CPU,
 // it has no understanding of the lifetime of resources on the GPU. Apps must account
@@ -32,13 +32,14 @@ public:
 	DX12Particles(UINT width, UINT height, std::wstring name);
 	~DX12Particles();
 
-    static const UINT ParticleBufferSize = 50;
+    static const UINT ParticleBufferSize = 5000;
     static const int FrameCount = 2;
 
 	virtual void OnInit();
 	virtual void OnUpdate();
     void RunComputeShader(int readableBufferIndex, int writableBufferIndex);
     void WaitForFence(bool waitOnCpu, bool bCompute);
+    void DrawParticlesWithPrimitives(int readableBufferIndex);
     void RenderParticles(int readableBufferIndex);
     void RenderDebugTexture();
     virtual void OnRender();
@@ -166,8 +167,17 @@ public:
     bool m_waitForComputeOnGPU = false;
 
     // Runtime variables
+    enum class RenderMode
+    {
+        DrawWithPrimitives,
+        TiledRasterization,
+        Debug_ParticleStates,
+        Debug_TileOccupancy,
+        Count
+    };
+
     bool m_bPaused = false;
-    bool m_bDebug = false;
+    RenderMode m_RenderMode = RenderMode::DrawWithPrimitives;
 
     StepTimer m_timer;
     UINT m_nEmitCountNextFrame = 0;

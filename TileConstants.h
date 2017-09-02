@@ -1,3 +1,7 @@
-#pragma once
+#ifdef TILE_CONSTANTS_HEADER_GUARD
+#else
+#define TILE_CONSTANTS_HEADER_GUARD
+
 #define TILE_SIZE_IN_PIXELS 32
 #define MAX_PARTICLE_PER_TILE 1024
+#endif

@@ -366,11 +366,11 @@ void DX12Particles::LoadAssets()
 
         // Additive blend state
         CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
-        blendDesc.RenderTarget[0].BlendEnable = TRUE;
+        /*blendDesc.RenderTarget[0].BlendEnable = TRUE;
         blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
 		blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
 		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
-		blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+		blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;*/
 
         // Describe and create the graphics pipeline state objects (PSO).
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -1160,10 +1160,11 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
 #endif
 
-    // Run the gather compute shader
-    m_commandListCompute->SetComputeRootSignature(m_tileRootSignature.Get());
-
+    if(m_RenderMode == RenderMode::TiledRasterization || m_RenderMode == RenderMode::Debug_TileOccupancy)
     {
+        // Run the gather compute shader
+        m_commandListCompute->SetComputeRootSignature(m_tileRootSignature.Get());
+        
         CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::StaticConstantBuffer, m_cbvSrvDescriptorSize);
         m_commandListCompute->SetComputeRootDescriptorTable(0, cbvHandle);
 
@@ -1242,29 +1243,8 @@ void DX12Particles::WaitForFence(bool waitOnCpu, bool bCompute)
     }
 }
 
-void DX12Particles::RenderParticles(int readableBufferIndex)
+void DX12Particles::DrawParticlesWithPrimitives(int readableBufferIndex)
 {
-    // Record all the commands we need to render the scene into the command list.
-    ThrowIfFailed(m_commandAllocator->Reset());
-    ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
-
-    // Indicate that the back buffer will be used as a render target.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
-
-    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
-    m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
-
-    // Record commands.
-    const float clearColor[] = { 0.0f, 0.0f, 0.3f, 0.0f };
-    m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-
-    m_commandList->RSSetViewports(1, &m_viewport);
-
-    if(m_bDebug)
-    {
-        RenderDebugTexture();
-    }
-
     m_commandList->SetPipelineState(m_pipelineState.Get());
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
@@ -1272,8 +1252,8 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
 
     m_commandList->SetGraphicsRootDescriptorTable(0, CD3DX12_GPU_DESCRIPTOR_HANDLE(
-        m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::StaticConstantBuffer, m_cbvSrvDescriptorSize
-    ));
+                                                      m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::StaticConstantBuffer, m_cbvSrvDescriptorSize
+                                                  ));
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleSRV0 + readableBufferIndex, m_cbvSrvDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(1, srvHandle);
@@ -1291,6 +1271,41 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
     m_commandList->DrawInstanced(ParticleBufferSize, 1, 0, 0);
+}
+
+void DX12Particles::RenderParticles(int readableBufferIndex)
+{
+    // Record all the commands we need to render the scene into the command list.
+    ThrowIfFailed(m_commandAllocator->Reset());
+    ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
+
+    // Indicate that the back buffer will be used as a render target.
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+    m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+    // Record commands.
+    const float clearColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+
+    m_commandList->RSSetViewports(1, &m_viewport);
+
+    switch (m_RenderMode)
+    {
+    case RenderMode::TiledRasterization:
+        {
+            RenderDebugTexture();
+        }
+        break;
+    case RenderMode::DrawWithPrimitives:
+        {
+            DrawParticlesWithPrimitives(readableBufferIndex);
+        }
+        break;
+    default:
+        break;
+    }
 
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
     m_commandList->Close();
@@ -1395,7 +1410,7 @@ void DX12Particles::OnKeyDown(UINT8 key)
         m_bPaused = !m_bPaused;
         break;
     case 'D':
-        m_bDebug = !m_bDebug;
+        m_RenderMode = (RenderMode)(((int)m_RenderMode + 1) % 2);
         break;
     }
 }

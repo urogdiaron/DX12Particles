@@ -10,11 +10,50 @@ void CSResetTileOffsetCounter(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchTh
 RWTexture2D<float4> g_OutputTexture : register(u5);
 
 
-groupshared uint aParticleIndices[1024];
+groupshared uint aParticleIndices[MAX_PARTICLE_PER_TILE];
 groupshared uint nParticleCountForCurrentTile;
 groupshared uint nParticleCountTotal;
+groupshared uint nOriginalValue;
 
-#define fParticleSize 0.01
+void BitonicSort(in uint localIdxFlattened)
+{
+    uint numParticles = nParticleCountForCurrentTile;
+
+    // Round the number of particles up to the nearest power of two
+    uint numParticlesPowerOfTwo = 1;
+    while (numParticlesPowerOfTwo < numParticles)
+        numParticlesPowerOfTwo <<= 1;
+
+    // The wait is required for the flow control
+    GroupMemoryBarrierWithGroupSync();
+
+    for (uint nMergeSize = 2; nMergeSize <= numParticlesPowerOfTwo; nMergeSize = nMergeSize * 2)
+    {
+        for (uint nMergeSubSize = nMergeSize >> 1; nMergeSubSize > 0; nMergeSubSize = nMergeSubSize >> 1)
+        {
+            uint tmp_index = localIdxFlattened;
+            uint index_low = tmp_index & (nMergeSubSize - 1);
+            uint index_high = 2 * (tmp_index - index_low);
+            uint index = index_high + index_low;
+
+            uint nSwapElem = nMergeSubSize == nMergeSize >> 1 ?
+                index_high + (2 * nMergeSubSize - 1) - index_low :
+                index_high + nMergeSubSize + index_low;
+
+            if (nSwapElem < numParticles && index < numParticles)
+            {
+                // Here we swap the data if it's in the wrong order
+                if (aParticleIndices[index] > aParticleIndices[nSwapElem])
+                {
+                    uint uTemp = aParticleIndices[index];
+                    aParticleIndices[index] = aParticleIndices[nSwapElem];
+                    aParticleIndices[nSwapElem] = uTemp;
+                }
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+}
 
 [numthreads(MAX_PARTICLE_PER_TILE, 1, 1)]
 void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
@@ -29,7 +68,7 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
     GroupMemoryBarrierWithGroupSync();
 
     // Culling the particles using the Separating Axis Theorem
-
+    // @Performance: Apparently it's a good idea to have the threads work on interleaved data so that cache coherence improves as the warp is lockstepping
     uint nParticlePerThread = ceil((float)nParticleCountTotal / MAX_PARTICLE_PER_TILE);
     uint nParticleStartIndex = nParticlePerThread * GTid.x;
     uint nParticleEndIndex = nParticleStartIndex + nParticlePerThread;
@@ -46,6 +85,8 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 	tileCorners[1] = float2(bottomRight.x, topLeft.y);
 	tileCorners[2] = bottomRight;
 	tileCorners[3] = float2(topLeft.x, bottomRight.y);
+
+    uint iCorner = 0;
 
     for (uint iParticle = nParticleStartIndex; iParticle < nParticleEndIndex; iParticle++)
     {
@@ -67,7 +108,7 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 		particleCorners[2] = particleBottomRight;
 		particleCorners[3] = float2(particleTopLeft.x, particleBottomRight.y);
 
-		for (int iCorner = 0; iCorner < 4; iCorner++)
+		for (iCorner = 0; iCorner < 4; iCorner++)
 		{
 			float2 originalPosition = particleCorners[iCorner] - p;
 			particleCorners[iCorner].x = originalPosition.x * rotCos - originalPosition.y * rotSin;
@@ -103,13 +144,13 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 			float2 normal2 = particleCorners[1] - particleCorners[2];
 
 			float2 tileCornersProjected[4];
-			for (int iCorner = 0; iCorner < 4; iCorner++)
+			for (iCorner = 0; iCorner < 4; iCorner++)
 			{
 				tileCornersProjected[iCorner] = float2(dot(tileCorners[iCorner], normal1), dot(tileCorners[iCorner], normal2));
 			}
 
 			float2 particleCornersProjected[4];
-			for (int iCorner = 0; iCorner < 4; iCorner++)
+			for (iCorner = 0; iCorner < 4; iCorner++)
 			{
 				particleCornersProjected[iCorner] = float2(dot(particleCorners[iCorner], normal1), dot(particleCorners[iCorner], normal2));
 			}
@@ -135,35 +176,32 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 
     GroupMemoryBarrierWithGroupSync();
 
-    // @Performance This could be done using multiple threads
     if (GTid.x == 0)
     {
-        // Rendering debug texture
-        float4 debugColor = nParticleCountForCurrentTile ? float4(0.2, 0.6, 0.2, 1.0) : float4(0.6, 0.2, 0.2, 1.0);
-        for (uint x = tileTopLeftPointPx.x; x < tileBottomRightPointPx.x - 1; x++)
-        {
-            for (uint y = tileTopLeftPointPx.y; y < tileBottomRightPointPx.y - 1; y++)
-            {
-                g_OutputTexture[uint2(x, y)] = debugColor;
-            }
-        }
-
-        // Output culled particles to global array
         if (nParticleCountForCurrentTile)
         {
-            uint nOriginalValue;
             InterlockedAdd(g_offsetCounter[0], nParticleCountForCurrentTile, nOriginalValue);
             g_offsetPerTiles[Gid.xy] = uint2(nOriginalValue, nParticleCountForCurrentTile);
-
-            // @Performance This loop can be separated for multiple threads
-            for (uint iParticle = 0; iParticle < nParticleCountForCurrentTile; iParticle++)
-            {
-                g_particleIndicesForTiles[nOriginalValue + iParticle] = aParticleIndices[iParticle];
-            }
         }
         else
         {
             g_offsetPerTiles[Gid.xy] = uint2(0, 0);
+        }
+    }
+    
+    if (nParticleCountForCurrentTile)
+    {
+        BitonicSort(GTid.x);
+
+        nParticlePerThread = ceil((float)nParticleCountForCurrentTile / MAX_PARTICLE_PER_TILE);
+        nParticleStartIndex = nParticlePerThread * GTid.x;
+        nParticleEndIndex = nParticleStartIndex + nParticlePerThread;
+        nParticleEndIndex = min(nParticleEndIndex, nParticleCountForCurrentTile);
+        
+        for (uint iParticle = nParticleStartIndex; iParticle < nParticleEndIndex; iParticle++)
+        {
+            g_particleIndicesForTiles[nOriginalValue + iParticle] = aParticleIndices[iParticle];
+            break;
         }
     }
 }
@@ -171,8 +209,6 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 [numthreads(TILE_SIZE_IN_PIXELS, TILE_SIZE_IN_PIXELS, 1)]
 void CSRasterizeParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
-	return;
-
     uint nWidth, nHeight;
     g_OutputTexture.GetDimensions(nWidth, nHeight);
     if (DTid.x >= nWidth || DTid.y >= nHeight)
@@ -187,13 +223,54 @@ void CSRasterizeParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThread
     for (uint iParticle = 0; iParticle < offsetAndCount.y; iParticle++)
     {
         uint particleIndex = g_particleIndicesForTiles[offsetAndCount.x + iParticle];
+       
         PosVelo particle = g_bufPosVelo[particleIndex];
-        
-        float2 toParticle = particle.pos.xy - threadPos;
-        float distanceSq = dot(toParticle, toParticle);
-        if (distanceSq < 0.01 * 0.01)
+        float2 particlePos = particle.pos.xy;
+
+        float rotate = particle.rotate.x;
+        float rotSin, rotCos;
+        sincos(rotate, rotSin, rotCos);
+
+        // Note the scale parameter means the half size
+        float2 particleTopLeft = particlePos - particle.scale.xy;
+        float2 particleBottomRight = particlePos + particle.scale.xy;
+
+        // Particle corners in cw order
+        float2 particleCorners[4];
+        particleCorners[0] = particleTopLeft;
+        particleCorners[1] = float2(particleBottomRight.x, particleTopLeft.y);
+        particleCorners[2] = particleBottomRight;
+        particleCorners[3] = float2(particleTopLeft.x, particleBottomRight.y);
+
+        for (int iCorner = 0; iCorner < 4; iCorner++)
         {
-            color = particle.color;
+            float2 originalPosition = particleCorners[iCorner] - particlePos;
+            particleCorners[iCorner].x = originalPosition.x * rotCos - originalPosition.y * rotSin;
+            particleCorners[iCorner].y = originalPosition.x * rotSin + originalPosition.y * rotCos;
+            particleCorners[iCorner] += particlePos;
+        }
+
+        float2 v0 = particleCorners[2] - particleCorners[3];
+        float2 v1 = particleCorners[0] - particleCorners[3];
+
+        float2 v2 = threadPos - particleCorners[3];
+
+        // Compute dot products
+        float dot00 = dot(v0, v0);
+        float dot01 = dot(v0, v1);
+        float dot02 = dot(v0, v2);
+        float dot11 = dot(v1, v1);
+        float dot12 = dot(v1, v2);
+
+        // Compute barycentric coordinates
+        float invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+        float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+        // Check if point is in triangle
+        if ((u >= 0) && (v >= 0) && u <= 1 && v <= 1)
+        {
+            color = float4(u, v, 0.5, 1);
         }
     }
     g_OutputTexture[DTid.xy] = color;
