@@ -112,7 +112,6 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
     {
         float3 position = g_positions[i] * fParticleSize;
         position += input[0].pos.xyz;
-        //position.x /= g_fAspectRatio;
 
         output.pos = float4(position, 1);
         output.color = input[0].color;

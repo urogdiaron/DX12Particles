@@ -67,14 +67,13 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 		particleCorners[2] = particleBottomRight;
 		particleCorners[3] = float2(particleTopLeft.x, particleBottomRight.y);
 
-#if 0
 		for (int iCorner = 0; iCorner < 4; iCorner++)
 		{
-			float2 originalPosition = particleCorners[iCorner];
+			float2 originalPosition = particleCorners[iCorner] - p;
 			particleCorners[iCorner].x = originalPosition.x * rotCos - originalPosition.y * rotSin;
 			particleCorners[iCorner].y = originalPosition.x * rotSin + originalPosition.y * rotCos;
+            particleCorners[iCorner] += p;
 		}
-#endif
 
 		bool bTileAxisX = false;
 		bool bTileAxisY = false;
@@ -91,11 +90,10 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 			float2 particlePosMin = min(min(particleCorners[0], particleCorners[1]), min(particleCorners[2], particleCorners[3]));
 			float2 particlePosMax = max(max(particleCorners[0], particleCorners[1]), max(particleCorners[2], particleCorners[3]));
 
-			bTileAxisX = particlePosMin.x > tilePosMax.x || tilePosMin.x > particlePosMax.x;
-			bTileAxisY = particlePosMin.y > tilePosMax.y || tilePosMin.y > particlePosMax.y;
+			bTileAxisX = particlePosMin.x <= tilePosMax.x && tilePosMin.x <= particlePosMax.x;
+			bTileAxisY = particlePosMin.y <= tilePosMax.y && tilePosMin.y <= particlePosMax.y;
 		}
 
-#if 0
 		{
 			// Now check the particle's axises
 
@@ -122,13 +120,12 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 			float2 particlePosMin = min(min(particleCornersProjected[0], particleCornersProjected[1]), min(particleCornersProjected[2], particleCornersProjected[3]));
 			float2 particlePosMax = max(max(particleCornersProjected[0], particleCornersProjected[1]), max(particleCornersProjected[2], particleCornersProjected[3]));
 
-			bParticleAxisX = particlePosMin.x > tilePosMax.x || tilePosMin.x > particlePosMax.x;
-			bParticleAxisY = particlePosMin.y > tilePosMax.y || tilePosMin.y > particlePosMax.y;
+			bParticleAxisX = particlePosMin.x <= tilePosMax.x && tilePosMin.x <= particlePosMax.x;
+			bParticleAxisY = particlePosMin.y <= tilePosMax.y && tilePosMin.y <= particlePosMax.y;
 		}
-#endif
 
 
-        if(bTileAxisX && bTileAxisY /*&& bParticleAxisX && bParticleAxisY*/)
+        if(bTileAxisX && bTileAxisY && bParticleAxisX && bParticleAxisY)
         {
             uint nPrevCount;
             InterlockedAdd(nParticleCountForCurrentTile, 1, nPrevCount);
@@ -193,7 +190,6 @@ void CSRasterizeParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThread
         PosVelo particle = g_bufPosVelo[particleIndex];
         
         float2 toParticle = particle.pos.xy - threadPos;
-        toParticle.x *= g_fAspectRatio;
         float distanceSq = dot(toParticle, toParticle);
         if (distanceSq < 0.01 * 0.01)
         {

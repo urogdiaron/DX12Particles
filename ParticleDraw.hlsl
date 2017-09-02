@@ -87,7 +87,6 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
 		position.x = originalPosition.x * rotCos - originalPosition.y * rotSin;
 		position.y = originalPosition.x * rotSin + originalPosition.y * rotCos;
 
-        position.x /= g_fAspectRatio;
         position += input[0].pos.xyz;
 
         output.pos = float4(position, 1);
