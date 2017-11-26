@@ -32,7 +32,7 @@ public:
 	DX12Particles(UINT width, UINT height, std::wstring name);
 	~DX12Particles();
 
-    static const UINT ParticleBufferSize = 5000;
+    static const UINT ParticleBufferSize = 50000;
     static const int FrameCount = 2;
 
 	virtual void OnInit();
@@ -175,6 +175,33 @@ public:
         Debug_TileOccupancy,
         Count
     };
+
+
+    // For profiling
+    enum class FramePerformanceStatistics
+    {
+        FrameTime,
+        ParticleSimulationTime,
+        PrimitiveRenderTime,
+        TileCollectionTime,
+        TiledRasterizationTime,
+        FramePerfomanceStatisticCount
+    };
+
+    struct FramePerformanceData
+    {
+        struct FrameStat
+        {
+            UINT64 begin;
+            UINT64 end;
+        };
+
+        FrameStat stats[(int)FramePerformanceStatistics::FramePerfomanceStatisticCount];
+    };
+
+    UINT64 m_nComputeTimestampFreq;
+    ComPtr<ID3D12QueryHeap> m_TimingQueryHeap;
+    ComPtr<ID3D12Resource> m_TimingQueryResult;
 
     bool m_bPaused = false;
     RenderMode m_RenderMode = RenderMode::DrawWithPrimitives;

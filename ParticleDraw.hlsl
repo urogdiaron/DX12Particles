@@ -103,7 +103,7 @@ void GSParticleDraw(point VSParticleDrawOut input[1], inout TriangleStream<GSPar
 //
 float4 PSParticleDraw(PSParticleDrawIn input) : SV_Target
 {
-	return float4(input.tex.xy, 0.5, 1);
+	return float4(input.tex.xy, 0.5, 0.2);
 }
 
 float GetRandomNumber(inout uint rng_state)

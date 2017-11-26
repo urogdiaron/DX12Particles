@@ -19,8 +19,8 @@ PosVelo GenerateNewParticle(uint rndSeed)
     particle.pos = float3(0, 0, 0);
     particle.timeLeft = -1.0f;
     particle.velocity = float4(GetRandomNumber(rndSeed) * 2.0f - 1.0f, GetRandomNumber(rndSeed) * 2.0f - 1.0f, 0, 0);
-    particle.color = float4(GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), 1);
-    particle.color = saturate(particle.color * 3);
+    particle.color = float4(GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), 0.02f);
+    //particle.color = saturate(particle.color * 3);
 	particle.scale = float4(0.01, 0.01, 0, 0);
 	particle.rotate = float4(0, 0, 0, 0);
     return particle;

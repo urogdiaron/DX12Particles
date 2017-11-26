@@ -4,4 +4,5 @@
 
 #define TILE_SIZE_IN_PIXELS 32
 #define MAX_PARTICLE_PER_TILE 1024
+#define COLLECT_PARTICLE_COUNT_PER_THREAD 1 // Should be a divisor of MAX_PARTICLE_PER_TILE
 #endif

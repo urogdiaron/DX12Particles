@@ -10,14 +10,15 @@ void CSResetTileOffsetCounter(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchTh
 RWTexture2D<float4> g_OutputTexture : register(u5);
 
 
-groupshared uint aParticleIndices[MAX_PARTICLE_PER_TILE];
-groupshared uint nParticleCountForCurrentTile;
-groupshared uint nParticleCountTotal;
-groupshared uint nOriginalValue;
+groupshared uint gs_aParticleIndices[MAX_PARTICLE_PER_TILE];
+groupshared uint gs_nParticleCountForCurrentTile;
+groupshared uint gs_nParticleCountTotal;
+groupshared uint gs_nOriginalValue;
 
 void BitonicSort(in uint localIdxFlattened)
 {
-    uint numParticles = nParticleCountForCurrentTile;
+    localIdxFlattened = localIdxFlattened * COLLECT_PARTICLE_COUNT_PER_THREAD;
+    uint numParticles = gs_nParticleCountForCurrentTile;
 
     // Round the number of particles up to the nearest power of two
     uint numParticlesPowerOfTwo = 1;
@@ -27,27 +28,31 @@ void BitonicSort(in uint localIdxFlattened)
     // The wait is required for the flow control
     GroupMemoryBarrierWithGroupSync();
 
+   
     for (uint nMergeSize = 2; nMergeSize <= numParticlesPowerOfTwo; nMergeSize = nMergeSize * 2)
     {
         for (uint nMergeSubSize = nMergeSize >> 1; nMergeSubSize > 0; nMergeSubSize = nMergeSubSize >> 1)
         {
-            uint tmp_index = localIdxFlattened;
-            uint index_low = tmp_index & (nMergeSubSize - 1);
-            uint index_high = 2 * (tmp_index - index_low);
-            uint index = index_high + index_low;
-
-            uint nSwapElem = nMergeSubSize == nMergeSize >> 1 ?
-                index_high + (2 * nMergeSubSize - 1) - index_low :
-                index_high + nMergeSubSize + index_low;
-
-            if (nSwapElem < numParticles && index < numParticles)
+            for (uint element = 0; element < COLLECT_PARTICLE_COUNT_PER_THREAD; element++)
             {
-                // Here we swap the data if it's in the wrong order
-                if (aParticleIndices[index] > aParticleIndices[nSwapElem])
+                uint tmp_index = localIdxFlattened + element;
+                uint index_low = tmp_index & (nMergeSubSize - 1);
+                uint index_high = 2 * (tmp_index - index_low);
+                uint index = index_high + index_low;
+
+                uint nSwapElem = nMergeSubSize == nMergeSize >> 1 ?
+                    index_high + (2 * nMergeSubSize - 1) - index_low :
+                    index_high + nMergeSubSize + index_low;
+
+                if (nSwapElem < numParticles && index < numParticles)
                 {
-                    uint uTemp = aParticleIndices[index];
-                    aParticleIndices[index] = aParticleIndices[nSwapElem];
-                    aParticleIndices[nSwapElem] = uTemp;
+                    // Here we swap the data if it's in the wrong order
+                    if (gs_aParticleIndices[index] > gs_aParticleIndices[nSwapElem])
+                    {
+                        uint uTemp = gs_aParticleIndices[index];
+                        gs_aParticleIndices[index] = gs_aParticleIndices[nSwapElem];
+                        gs_aParticleIndices[nSwapElem] = uTemp;
+                    }
                 }
             }
             GroupMemoryBarrierWithGroupSync();
@@ -55,24 +60,24 @@ void BitonicSort(in uint localIdxFlattened)
     }
 }
 
-[numthreads(MAX_PARTICLE_PER_TILE, 1, 1)]
+[numthreads(MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD, 1, 1)]
 void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint GI : SV_GroupIndex)
 {
     // Resetting the counters
     if (GTid.x == 0)
     {
-        nParticleCountForCurrentTile = 0;
-        nParticleCountTotal = g_deadList[0];
+        gs_nParticleCountForCurrentTile = 0;
+        gs_nParticleCountTotal = g_deadList[0];
     }
 
     GroupMemoryBarrierWithGroupSync();
 
     // Culling the particles using the Separating Axis Theorem
     // @Performance: Apparently it's a good idea to have the threads work on interleaved data so that cache coherence improves as the warp is lockstepping
-    uint nParticlePerThread = ceil((float)nParticleCountTotal / MAX_PARTICLE_PER_TILE);
+    uint nParticlePerThread = ceil((float)gs_nParticleCountTotal / (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD));
     uint nParticleStartIndex = nParticlePerThread * GTid.x;
     uint nParticleEndIndex = nParticleStartIndex + nParticlePerThread;
-    nParticleEndIndex = min(nParticleEndIndex, nParticleCountTotal);
+    nParticleEndIndex = min(nParticleEndIndex, gs_nParticleCountTotal);
 
     uint2 tileTopLeftPointPx = uint2(TILE_SIZE_IN_PIXELS.xx) * Gid.xy;
     uint2 tileBottomRightPointPx = tileTopLeftPointPx + uint2(TILE_SIZE_IN_PIXELS.xx);
@@ -169,8 +174,8 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
         if(bTileAxisX && bTileAxisY && bParticleAxisX && bParticleAxisY)
         {
             uint nPrevCount;
-            InterlockedAdd(nParticleCountForCurrentTile, 1, nPrevCount);
-            aParticleIndices[nPrevCount] = iParticle;
+            InterlockedAdd(gs_nParticleCountForCurrentTile, 1, nPrevCount);
+            gs_aParticleIndices[nPrevCount] = iParticle;
         }
     }
 
@@ -178,10 +183,10 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 
     if (GTid.x == 0)
     {
-        if (nParticleCountForCurrentTile)
+        if (gs_nParticleCountForCurrentTile)
         {
-            InterlockedAdd(g_offsetCounter[0], nParticleCountForCurrentTile, nOriginalValue);
-            g_offsetPerTiles[Gid.xy] = uint2(nOriginalValue, nParticleCountForCurrentTile);
+            InterlockedAdd(g_offsetCounter[0], gs_nParticleCountForCurrentTile, gs_nOriginalValue);
+            g_offsetPerTiles[Gid.xy] = uint2(gs_nOriginalValue, gs_nParticleCountForCurrentTile);
         }
         else
         {
@@ -189,19 +194,18 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
         }
     }
     
-    if (nParticleCountForCurrentTile)
+    if (gs_nParticleCountForCurrentTile)
     {
         BitonicSort(GTid.x);
 
-        nParticlePerThread = ceil((float)nParticleCountForCurrentTile / MAX_PARTICLE_PER_TILE);
+        nParticlePerThread = ceil((float)gs_nParticleCountForCurrentTile / (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD));
         nParticleStartIndex = nParticlePerThread * GTid.x;
         nParticleEndIndex = nParticleStartIndex + nParticlePerThread;
-        nParticleEndIndex = min(nParticleEndIndex, nParticleCountForCurrentTile);
+        nParticleEndIndex = min(nParticleEndIndex, gs_nParticleCountForCurrentTile);
         
         for (uint iParticle = nParticleStartIndex; iParticle < nParticleEndIndex; iParticle++)
         {
-            g_particleIndicesForTiles[nOriginalValue + iParticle] = aParticleIndices[iParticle];
-            break;
+            g_particleIndicesForTiles[gs_nOriginalValue + iParticle] = gs_aParticleIndices[iParticle];
         }
     }
 }
@@ -220,7 +224,7 @@ void CSRasterizeParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThread
 
     uint2 offsetAndCount = g_offsetPerTiles[Gid.xy];
     float4 color = float4(0, 0, 0, 1);
-    for (uint iParticle = 0; iParticle < offsetAndCount.y; iParticle++)
+    for (int iParticle = offsetAndCount.y - 1; iParticle >= 0; iParticle--)
     {
         uint particleIndex = g_particleIndicesForTiles[offsetAndCount.x + iParticle];
        
@@ -271,6 +275,7 @@ void CSRasterizeParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThread
         if ((u >= 0) && (v >= 0) && u <= 1 && v <= 1)
         {
             color = float4(u, v, 0.5, 1);
+            break;
         }
     }
     g_OutputTexture[DTid.xy] = color;

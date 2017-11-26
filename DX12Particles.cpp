@@ -78,7 +78,7 @@ void DX12Particles::LoadPipeline()
 
         ThrowIfFailed(D3D12CreateDevice(
             warpAdapter.Get(),
-            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_12_1,
             IID_PPV_ARGS(&m_device)
         ));
     }
@@ -89,7 +89,7 @@ void DX12Particles::LoadPipeline()
 
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
-            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_12_1,
             IID_PPV_ARGS(&m_device)
         ));
     }
@@ -160,6 +160,7 @@ void DX12Particles::LoadPipeline()
     NAME_D3D12_OBJECT(m_commandAllocator);
     NAME_D3D12_OBJECT(m_commandAllocatorCompute);
 
+    ThrowIfFailed(m_commandQueueCompute->GetTimestampFrequency(&m_nComputeTimestampFreq));
 }
 
 std::vector<DX12Particles::ParticleData> particleData;
@@ -366,11 +367,13 @@ void DX12Particles::LoadAssets()
 
         // Additive blend state
         CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
-        /*blendDesc.RenderTarget[0].BlendEnable = TRUE;
+        blendDesc.RenderTarget[0].BlendEnable = TRUE;
         blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
-		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
-		blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;*/
+		blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+        blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+        blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
 
         // Describe and create the graphics pipeline state objects (PSO).
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -996,6 +999,31 @@ void DX12Particles::LoadAssets()
         NAME_D3D12_OBJECT(m_debugRenderPipelineState);
     }
 
+    // Create stuff for profiling
+    {
+        // The heap contains a begin-end timestamp pair for each statistic we want to measure.
+        // This is the memory layout: Frame1Stat1Begin, Frame1Stat1End, Frame1Stat2Begin, Frame1Stat2End, ...
+
+        D3D12_QUERY_HEAP_DESC queryHeapDesc = {};
+        queryHeapDesc.Count = (int)FramePerformanceStatistics::FramePerfomanceStatisticCount * FrameCount * 2;
+        queryHeapDesc.NodeMask = 0;
+        queryHeapDesc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+        m_device->CreateQueryHeap(&queryHeapDesc, IID_PPV_ARGS(&m_TimingQueryHeap));
+        NAME_D3D12_OBJECT(m_TimingQueryHeap);
+
+        int resultSize = sizeof(UINT64) * FrameCount * 2;
+
+        m_device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(queryHeapDesc.Count * sizeof(UINT64)),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&m_TimingQueryResult));
+
+        NAME_D3D12_OBJECT(m_TimingQueryResult);
+    }
+
 
     // Close the command list and execute it to begin the initial GPU setup.
     ThrowIfFailed(m_commandList->Close());
@@ -1032,21 +1060,47 @@ void DX12Particles::LoadAssets()
 // Update frame-based values.
 void DX12Particles::OnUpdate()
 {
+    UINT64 elapsedTimeUs[(int)FramePerformanceStatistics::FramePerfomanceStatisticCount] = {};
+
+    {
+        // Collect statistics info
+        const UINT oldestFrameIndex = (m_frameIndex + 1) % FrameCount;
+        D3D12_RANGE readRange = {};
+        const D3D12_RANGE emptyRange = {};
+
+        UINT queryCountPerFrame = (int)FramePerformanceStatistics::FramePerfomanceStatisticCount * 2;
+
+        readRange.Begin = oldestFrameIndex * queryCountPerFrame * sizeof(UINT64);
+        readRange.End = readRange.Begin + queryCountPerFrame * sizeof(UINT64);
+
+        void* pData = nullptr;
+        ThrowIfFailed(m_TimingQueryResult->Map(0, &readRange, &pData));
+
+        FramePerformanceData PerfData = (FramePerformanceData&)*(static_cast<UINT8*>(pData) + readRange.Begin);
+
+        // Unmap with an empty range (written range).
+        m_TimingQueryResult->Unmap(0, &emptyRange);
+
+        for (int iStat = 0; iStat < (int)FramePerformanceStatistics::FramePerfomanceStatisticCount; iStat++)
+        {
+            elapsedTimeUs[iStat] = PerfData.stats[iStat].end - PerfData.stats[iStat].begin;
+            elapsedTimeUs[iStat] = (elapsedTimeUs[iStat] * 1000000) / m_nComputeTimestampFreq;
+        }
+    }
+
     m_timer.Tick(NULL);
 
     if (m_frameCounter == 500)
     {
+        float fTileCollectionTimeMs = (float)((double)elapsedTimeUs[(int)FramePerformanceStatistics::TileCollectionTime] / 1000.0);
+        float fPrimitiveRenderTimeMs = (float)((double)elapsedTimeUs[(int)FramePerformanceStatistics::PrimitiveRenderTime] / 1000.0);
+
         // Update window text with FPS value.
         wchar_t fps[200];
-        swprintf_s(fps, L"%ufps; Particle Count: %d; (%s) (%s);",
-            m_timer.GetFramesPerSecond(), 
-#ifdef DEBUG_PARTICLE_DATA
-            m_LastFrameDeadListBufferData->m_nParticleCount,
-#else
-            -1,
-#endif
-            m_computeFirst ? L"Compute first" : L"Render first",
-            m_waitForComputeOnGPU ? L"Waiting on GPU" : L"Waiting on CPU");
+        swprintf_s(fps, L"%ufps; TileCollectionTime: %0.3f ms; PrimitiveRender : %.03f ms",
+            m_timer.GetFramesPerSecond(),
+            fTileCollectionTimeMs,
+            fPrimitiveRenderTimeMs);
         m_frameCounter = 0;
         SetCustomWindowText(fps);
     }
@@ -1195,7 +1249,14 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
         UINT tileCountX = (UINT)((float)m_width / TILE_SIZE_IN_PIXELS + 0.5f);
         UINT tileCountY = (UINT)((float)m_height / TILE_SIZE_IN_PIXELS + 0.5f);
 
+        // @TODO Timing this doesn't work because the command processor starts the dispatches and moves on
+        // so it won't ever wait for them to finish.
+        //UINT queryCountPerFrame = (int)FramePerformanceStatistics::FramePerfomanceStatisticCount * 2;
+        //UINT timeQueryIndex = queryCountPerFrame * m_frameIndex + (int)FramePerformanceStatistics::TileCollectionTime * 2;
+        //m_commandListCompute->EndQuery(m_TimingQueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, timeQueryIndex);
+
         m_commandListCompute->SetPipelineState(m_tilePipelineStates[(int)TileComputePass::GatherParticles].Get());
+        
         m_commandListCompute->Dispatch(tileCountX, tileCountY, 1);
 
         m_commandListCompute->SetPipelineState(m_tilePipelineStates[(int)TileComputePass::RasterizeParticles].Get());
@@ -1203,6 +1264,10 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
 
         m_commandListCompute->SetPipelineState(m_tilePipelineStates[(int)TileComputePass::ResetCounter].Get());
         m_commandListCompute->Dispatch(1, 1, 1);
+
+        //m_commandListCompute->EndQuery(m_TimingQueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, timeQueryIndex + 1);
+        //UINT startQueryIndex = m_frameIndex * queryCountPerFrame;
+        //m_commandListCompute->ResolveQueryData(m_TimingQueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, startQueryIndex, queryCountPerFrame, m_TimingQueryResult.Get(), startQueryIndex * sizeof(UINT64));
     }
 
 
@@ -1279,6 +1344,10 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     ThrowIfFailed(m_commandAllocator->Reset());
     ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
 
+    UINT queryCountPerFrame = (int)FramePerformanceStatistics::FramePerfomanceStatisticCount * 2;
+    UINT timeQueryIndex = queryCountPerFrame * m_frameIndex + (int)FramePerformanceStatistics::PrimitiveRenderTime * 2;
+    m_commandList->EndQuery(m_TimingQueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, timeQueryIndex);
+
     // Indicate that the back buffer will be used as a render target.
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
@@ -1306,6 +1375,11 @@ void DX12Particles::RenderParticles(int readableBufferIndex)
     default:
         break;
     }
+
+    m_commandList->EndQuery(m_TimingQueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, timeQueryIndex + 1);
+    UINT startQueryIndex = m_frameIndex * queryCountPerFrame;
+    m_commandList->ResolveQueryData(m_TimingQueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, startQueryIndex, queryCountPerFrame, m_TimingQueryResult.Get(), startQueryIndex * sizeof(UINT64));
+
 
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
     m_commandList->Close();
