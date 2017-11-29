@@ -1,4 +1,5 @@
 #include "ParticleCommon.hlsli"
+#include "TileConstants.h"
 
 float GetRandomNumber(inout uint seed)
 {
@@ -22,7 +23,11 @@ PosVelo GenerateNewParticle(uint rndSeed)
     particle.color = float4(GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), 0.02f);
     //particle.color = saturate(particle.color * 3);
 	particle.scale = float4(0.01, 0.01, 0, 0);
+#ifdef DISABLE_ROTATION
 	particle.rotate = float4(0, 0, 0, 0);
+#else
+    particle.rotate = float4(GetRandomNumber(rndSeed), 0, 0, 0);
+#endif
     return particle;
 }
 
@@ -71,7 +76,9 @@ void CSUpdate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GT
     }
 
     particle.pos.xyz += particle.velocity.xyz * g_fElapsedTime;
-	particle.rotate.x += g_fElapsedTime * 0.5f;
+#ifndef DISABLE_ROTATION
+    particle.rotate.x += g_fElapsedTime * 0.5f;
+#endif
 
     if (particle.pos.x < -1)
     {

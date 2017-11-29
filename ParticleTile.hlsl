@@ -10,10 +10,27 @@ void CSResetTileOffsetCounter(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchTh
 RWTexture2D<float4> g_OutputTexture : register(u5);
 
 
-groupshared uint gs_aParticleIndices[MAX_PARTICLE_PER_TILE];
 groupshared uint gs_nParticleCountForCurrentTile;
 groupshared uint gs_nParticleCountTotal;
 groupshared uint gs_nOriginalValue;
+groupshared uint gs_aParticleIndices[MAX_PARTICLE_PER_TILE];
+
+// For debugging purposes
+void BubbleSort()
+{
+    for (uint c = 0; c < (gs_nParticleCountForCurrentTile - 1); c++)
+    {
+        for (uint d = 0; d < gs_nParticleCountForCurrentTile - c - 1; d++)
+        {
+            if (gs_aParticleIndices[d] > gs_aParticleIndices[d + 1]) /* For decreasing order use < */
+            {
+                uint swap = gs_aParticleIndices[d];
+                gs_aParticleIndices[d] = gs_aParticleIndices[d + 1];
+                gs_aParticleIndices[d + 1] = swap;
+            }
+        }
+    }
+}
 
 void BitonicSort(in uint localIdxFlattened)
 {
@@ -92,7 +109,7 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 	tileCorners[3] = float2(topLeft.x, bottomRight.y);
 
     uint iCorner = 0;
-
+    
     for (uint iParticle = nParticleStartIndex; iParticle < nParticleEndIndex; iParticle++)
     {
         PosVelo particle = g_bufPosVelo[iParticle];
@@ -140,6 +157,7 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 			bTileAxisY = particlePosMin.y <= tilePosMax.y && tilePosMin.y <= particlePosMax.y;
 		}
 
+#ifndef DISABLE_ROTATION
 		{
 			// Now check the particle's axises
 
@@ -169,12 +187,21 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 			bParticleAxisX = particlePosMin.x <= tilePosMax.x && tilePosMin.x <= particlePosMax.x;
 			bParticleAxisY = particlePosMin.y <= tilePosMax.y && tilePosMin.y <= particlePosMax.y;
 		}
+#else
+        bParticleAxisX = true;
+        bParticleAxisY = true;
+#endif
 
 
         if(bTileAxisX && bTileAxisY && bParticleAxisX && bParticleAxisY)
         {
             uint nPrevCount;
             InterlockedAdd(gs_nParticleCountForCurrentTile, 1, nPrevCount);
+            if (nPrevCount > MAX_PARTICLE_PER_TILE)
+            {
+                gs_nParticleCountForCurrentTile = MAX_PARTICLE_PER_TILE;
+                break;
+            }
             gs_aParticleIndices[nPrevCount] = iParticle;
         }
     }
@@ -185,8 +212,11 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
     {
         if (gs_nParticleCountForCurrentTile)
         {
-            InterlockedAdd(g_offsetCounter[0], gs_nParticleCountForCurrentTile, gs_nOriginalValue);
-            g_offsetPerTiles[Gid.xy] = uint2(gs_nOriginalValue, gs_nParticleCountForCurrentTile);
+            uint nParticleCountForCurrentTile = gs_nParticleCountForCurrentTile;
+            uint nOriginalValue;
+            InterlockedAdd(g_offsetCounter[0], nParticleCountForCurrentTile, nOriginalValue);
+            g_offsetPerTiles[Gid.xy] = uint2(nOriginalValue, nParticleCountForCurrentTile);
+            gs_nOriginalValue = nOriginalValue;
         }
         else
         {
@@ -196,7 +226,15 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
     
     if (gs_nParticleCountForCurrentTile)
     {
+#ifdef DEBUG_SORTING
+        if (GTid.x == 0)
+        {
+            BubbleSort();
+        }
+        GroupMemoryBarrierWithGroupSync();
+#else
         BitonicSort(GTid.x);
+#endif
 
         nParticlePerThread = ceil((float)gs_nParticleCountForCurrentTile / (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD));
         nParticleStartIndex = nParticlePerThread * GTid.x;

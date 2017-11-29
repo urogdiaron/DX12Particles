@@ -200,7 +200,11 @@ UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
         particleData[i].pos.y = posY;
         particleData[i].velocity.x = 0.01f;
 		particleData[i].scale = XMFLOAT4(fnGetRandomFloatInRange(0.01f, 0.06f), fnGetRandomFloatInRange(0.01f, 0.06f), 0.0f, 0.0f);
-		particleData[i].rotate = XMFLOAT4(fnGetRandomFloatInRange(-XM_PI, XM_PI), 0.0f, 0.0f, 0.0f);
+#ifdef DISABLE_ROTATION
+		particleData[i].rotate = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+#else
+        particleData[i].rotate = XMFLOAT4(fnGetRandomFloatInRange(-XM_PI, XM_PI));
+#endif
 
         particleData[i].color = colors[i % (sizeof(colors) / sizeof(XMFLOAT4))];
 
