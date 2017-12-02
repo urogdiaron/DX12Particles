@@ -90,12 +90,6 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
     GroupMemoryBarrierWithGroupSync();
 
     // Culling the particles using the Separating Axis Theorem
-    // @Performance: Apparently it's a good idea to have the threads work on interleaved data so that cache coherence improves as the warp is lockstepping
-    uint nParticlePerThread = ceil((float)gs_nParticleCountTotal / (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD));
-    uint nParticleStartIndex = nParticlePerThread * GTid.x;
-    uint nParticleEndIndex = nParticleStartIndex + nParticlePerThread;
-    nParticleEndIndex = min(nParticleEndIndex, gs_nParticleCountTotal);
-
     uint2 tileTopLeftPointPx = uint2(TILE_SIZE_IN_PIXELS.xx) * Gid.xy;
     uint2 tileBottomRightPointPx = tileTopLeftPointPx + uint2(TILE_SIZE_IN_PIXELS.xx);
     
@@ -109,9 +103,22 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
 	tileCorners[3] = float2(topLeft.x, bottomRight.y);
 
     uint iCorner = 0;
+
+    uint nParticlePerThread = ceil((float)gs_nParticleCountTotal / (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD));
+
+#ifdef INTERLEAVED_PARTICLE_COLLECTION
+    for (uint iLoop = 0; iLoop < nParticlePerThread; iLoop++)
+    {
+        uint iParticle = GTid.x + iLoop * (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD);
+#else
+    // @Performance: Apparently it's a good idea to have the threads work on interleaved data so that cache coherence improves as the warp is lockstepping
+    uint nParticleStartIndex = nParticlePerThread * GTid.x;
+    uint nParticleEndIndex = nParticleStartIndex + nParticlePerThread;
+    nParticleEndIndex = min(nParticleEndIndex, gs_nParticleCountTotal);
     
     for (uint iParticle = nParticleStartIndex; iParticle < nParticleEndIndex; iParticle++)
     {
+#endif
         PosVelo particle = g_bufPosVelo[iParticle];
         float2 p = particle.pos.xy;
 
@@ -236,15 +243,28 @@ void CSCollectParticles(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID
         BitonicSort(GTid.x);
 #endif
 
+#ifdef INTERLEAVED_PARTICLE_COLLECTION
+        uint nParticleCountForCurrentTile = gs_nParticleCountForCurrentTile;
+        nParticlePerThread = ceil((float)gs_nParticleCountForCurrentTile / (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD));
+        for (uint iParticle = 0; iParticle < nParticlePerThread; iParticle++)
+        {
+            uint iParticleIndex = GTid.x + iParticle * (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD);
+            if (iParticleIndex < nParticleCountForCurrentTile)
+            {
+                g_particleIndicesForTiles[gs_nOriginalValue + iParticleIndex] = gs_aParticleIndices[iParticleIndex];
+            }
+        }
+#else
         nParticlePerThread = ceil((float)gs_nParticleCountForCurrentTile / (MAX_PARTICLE_PER_TILE / COLLECT_PARTICLE_COUNT_PER_THREAD));
         nParticleStartIndex = nParticlePerThread * GTid.x;
         nParticleEndIndex = nParticleStartIndex + nParticlePerThread;
         nParticleEndIndex = min(nParticleEndIndex, gs_nParticleCountForCurrentTile);
-        
+
         for (uint iParticle = nParticleStartIndex; iParticle < nParticleEndIndex; iParticle++)
         {
             g_particleIndicesForTiles[gs_nOriginalValue + iParticle] = gs_aParticleIndices[iParticle];
         }
+#endif
     }
 }
 

@@ -8,5 +8,6 @@
 
 #define DISABLE_ROTATION
 //#define DEBUG_SORTING
+#define INTERLEAVED_PARTICLE_COLLECTION
 
 #endif

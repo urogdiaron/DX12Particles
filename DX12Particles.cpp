@@ -203,7 +203,7 @@ UINT DX12Particles::CreateParticleBuffers(ID3D12Resource* particleUploadBuffer)
 #ifdef DISABLE_ROTATION
 		particleData[i].rotate = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
 #else
-        particleData[i].rotate = XMFLOAT4(fnGetRandomFloatInRange(-XM_PI, XM_PI));
+        particleData[i].rotate = XMFLOAT4(fnGetRandomFloatInRange(-XM_PI, XM_PI), 0.0f, 0.0f, 0.0f);
 #endif
 
         particleData[i].color = colors[i % (sizeof(colors) / sizeof(XMFLOAT4))];
@@ -371,13 +371,13 @@ void DX12Particles::LoadAssets()
 
         // Additive blend state
         CD3DX12_BLEND_DESC blendDesc(D3D12_DEFAULT);
-        blendDesc.RenderTarget[0].BlendEnable = TRUE;
+        /*blendDesc.RenderTarget[0].BlendEnable = TRUE;
         blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
 		blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
         blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
 		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
         blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-        blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;*/
 
         // Describe and create the graphics pipeline state objects (PSO).
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -1094,7 +1094,7 @@ void DX12Particles::OnUpdate()
 
     m_timer.Tick(NULL);
 
-    if (m_frameCounter == 500)
+    if (m_frameCounter == 50)
     {
         float fTileCollectionTimeMs = (float)((double)elapsedTimeUs[(int)FramePerformanceStatistics::TileCollectionTime] / 1000.0);
         float fPrimitiveRenderTimeMs = (float)((double)elapsedTimeUs[(int)FramePerformanceStatistics::PrimitiveRenderTime] / 1000.0);
