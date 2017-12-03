@@ -1,20 +1,21 @@
-struct PosVelo
-{
-    float3 pos;
-    float  timeLeft;
-    float4 velocity;
-	float4 color;
-	float4 scale;
-	float4 rotate;
-};
+StructuredBuffer<float2> g_particlePositions:  register(t0);
+StructuredBuffer<float2> g_particleScales:     register(t1);	
+StructuredBuffer<float2> g_particleVelocities: register(t2);	
+StructuredBuffer<float>  g_particleRotations:  register(t3);	
+StructuredBuffer<float>  g_particleLifetimes:  register(t4);	
+StructuredBuffer<float4> g_particleColors:     register(t5);
 
-StructuredBuffer<PosVelo> g_bufPosVelo		 : register(t0);	// SRV
-RWStructuredBuffer<PosVelo> g_bufPosVeloOut  : register(u0);	// UAV
-globallycoherent RWStructuredBuffer<uint> g_deadList         : register(u1);	// UAV - g_deadList[g_nParticleBufferSize] = the current particle count
+RWStructuredBuffer<float2> g_particlePositionsOut:  register(u0);
+RWStructuredBuffer<float2> g_particleScalesOut:     register(u1);
+RWStructuredBuffer<float2> g_particleVelocitiesOut: register(u2);
+RWStructuredBuffer<float>  g_particleRotationsOut:  register(u3);
+RWStructuredBuffer<float>  g_particleLifetimesOut:  register(u4);
+RWStructuredBuffer<float4> g_particleColorsOut:     register(u5);
 
-globallycoherent RWStructuredBuffer<uint> g_offsetCounter: register(u2);
-RWTexture2D<uint2> g_offsetPerTiles: register(u3);
-RWStructuredBuffer<uint> g_particleIndicesForTiles : register(u4);
+globallycoherent RWStructuredBuffer<uint> g_deadList      : register(u10);	// UAV - g_deadList[g_nParticleBufferSize] = the current particle count
+globallycoherent RWStructuredBuffer<uint> g_offsetCounter : register(u11);
+RWTexture2D<uint2> g_offsetPerTiles                       : register(u12);
+RWStructuredBuffer<uint> g_particleIndicesForTiles        : register(u13);
 
 cbuffer globals : register(b0)
 {

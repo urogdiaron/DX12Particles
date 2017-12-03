@@ -53,11 +53,10 @@ VSParticleDrawOut VSParticleDraw(uint id : SV_VERTEXID)
 {
     VSParticleDrawOut output;
 
-    PosVelo particleData = g_bufPosVelo[id];
-    output.pos = float4(particleData.pos.xyz, particleData.timeLeft);
-    output.color = particleData.color;
-	output.scale = particleData.scale;
-	output.rotate = particleData.rotate;
+    output.pos = float4(g_particlePositions[id].xy, 0, g_particleLifetimes[id]);
+    output.color = g_particleColors[id];
+	output.scale = float4(g_particleScales[id].xy, 0, 0);
+	output.rotate = float4(g_particleRotations[id], 0, 0, 0);
 
     return output;
 }

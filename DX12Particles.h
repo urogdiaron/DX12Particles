@@ -48,7 +48,6 @@ public:
 	virtual void OnKeyUp(UINT8 key);
 
     void LoadPipeline();
-    UINT CreateParticleBuffers(ID3D12Resource* pParticleUpdateBuffer);
     void LoadAssets();
 
 	struct ParticleVertex
@@ -56,23 +55,33 @@ public:
 		XMFLOAT4 color;
 	};
 
-	struct ParticleData
-	{
-		XMFLOAT3 pos;
-        float fTimeLeft;
-        XMFLOAT4 velocity;
-		XMFLOAT4 color;
-		XMFLOAT4 scale;
-		XMFLOAT4 rotate;
-	};
-
     enum class DescOffset
     {
         StaticConstantBuffer,
-        ParticleSRV0,
-        ParticleSRV1,
-        ParticleUAV0,
-        ParticleUAV1,
+        ParticlePositionSRV0,
+        ParticleScaleSRV0,
+        ParticleVelocitySRV0,
+        ParticleRotationSRV0,
+        ParticleLifetimeSRV0,
+        ParticleColorSRV0,
+        ParticlePositionUAV0,
+        ParticleScaleUAV0,
+        ParticleVelocityUAV0,
+        ParticleRotationUAV0,
+        ParticleLifetimeUAV0,
+        ParticleColorUAV0,
+        ParticlePositionSRV1,
+        ParticleScaleSRV1,
+        ParticleVelocitySRV1,
+        ParticleRotationSRV1,
+        ParticleLifetimeSRV1,
+        ParticleColorSRV1,
+        ParticlePositionUAV1,
+        ParticleScaleUAV1,
+        ParticleVelocityUAV1,
+        ParticleRotationUAV1,
+        ParticleLifetimeUAV1,
+        ParticleColorUAV1,
         PerFrameConstantBuffer0,
         PerFrameConstantBuffer1,
         DeadListUAV,
@@ -142,10 +151,21 @@ public:
     ComPtr<ID3D12PipelineState> m_debugRenderPipelineState;
 
 	// App resources.
-	ComPtr<ID3D12Resource> m_particleBuffers[FrameCount];
+    struct ParticleBuffers
+    {
+        ComPtr<ID3D12Resource> m_PositionBuffer;
+        ComPtr<ID3D12Resource> m_ScaleBuffer;
+        ComPtr<ID3D12Resource> m_VelocityBuffer;
+        ComPtr<ID3D12Resource> m_LifetimeBuffer;
+        ComPtr<ID3D12Resource> m_RotationBuffer;
+        ComPtr<ID3D12Resource> m_ColorBuffer;
+    };
+    ParticleBuffers m_particleBuffers[FrameCount];
     ComPtr<ID3D12Resource> m_deadListBuffer;
 	ComPtr<ID3D12Resource> m_constantBufferGS;
     
+    UINT CreateParticleBuffers(ParticleBuffers& UploadBuffers);
+
     ComPtr<ID3D12Resource> m_constantBufferPerFrame[FrameCount];
     UINT* m_constantBufferPerFrameData[FrameCount];     //We constantly have the buffer mapped since it's in the upload heap.
 
