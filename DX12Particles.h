@@ -151,15 +151,22 @@ public:
     ComPtr<ID3D12PipelineState> m_debugRenderPipelineState;
 
 	// App resources.
+    enum class ParticleBufferTypes
+    {
+        Position,
+        Scale,
+        Velocity,
+        Rotation,
+        Lifetime,
+        Color,
+        Count
+    };
+
     struct ParticleBuffers
     {
-        ComPtr<ID3D12Resource> m_PositionBuffer;
-        ComPtr<ID3D12Resource> m_ScaleBuffer;
-        ComPtr<ID3D12Resource> m_VelocityBuffer;
-        ComPtr<ID3D12Resource> m_LifetimeBuffer;
-        ComPtr<ID3D12Resource> m_RotationBuffer;
-        ComPtr<ID3D12Resource> m_ColorBuffer;
+        std::array<ComPtr<ID3D12Resource>, (int)ParticleBufferTypes::Count> Buffers;
     };
+
     ParticleBuffers m_particleBuffers[FrameCount];
     ComPtr<ID3D12Resource> m_deadListBuffer;
 	ComPtr<ID3D12Resource> m_constantBufferGS;

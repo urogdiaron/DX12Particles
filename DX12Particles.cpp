@@ -163,14 +163,27 @@ void DX12Particles::LoadPipeline()
     ThrowIfFailed(m_commandQueueCompute->GetTimestampFrequency(&m_nComputeTimestampFreq));
 }
 
-std::vector<XMFLOAT2> particlePositions;
-std::vector<XMFLOAT2> particleScales;
-std::vector<float> particleRotations;
-std::vector<float> particleLifetimes;
-std::vector<XMFLOAT2> particleVelocities;
-std::vector<XMFLOAT4> particleColors;
+std::vector<float> particleData[(int)DX12Particles::ParticleBufferTypes::Count];
+
 UINT DX12Particles::CreateParticleBuffers(ParticleBuffers& UploadBuffers)
 {
+    std::array<UINT, (int)ParticleBufferTypes::Count> particleBufferSizes;
+    std::array<std::wstring, (int)ParticleBufferTypes::Count> particleBufferNames;
+
+    particleBufferSizes[(int)ParticleBufferTypes::Position] = sizeof(XMFLOAT2);
+    particleBufferSizes[(int)ParticleBufferTypes::Scale] = sizeof(XMFLOAT2);
+    particleBufferSizes[(int)ParticleBufferTypes::Velocity] = sizeof(XMFLOAT2);
+    particleBufferSizes[(int)ParticleBufferTypes::Rotation] = sizeof(float);
+    particleBufferSizes[(int)ParticleBufferTypes::Lifetime] = sizeof(float);
+    particleBufferSizes[(int)ParticleBufferTypes::Color] = sizeof(XMFLOAT4);
+
+    particleBufferNames[(int)ParticleBufferTypes::Position] = sizeof(L"Position");
+    particleBufferNames[(int)ParticleBufferTypes::Scale] = sizeof(L"Scale");
+    particleBufferNames[(int)ParticleBufferTypes::Velocity] = sizeof(L"Velocity");
+    particleBufferNames[(int)ParticleBufferTypes::Rotation] = sizeof(L"Rotation");
+    particleBufferNames[(int)ParticleBufferTypes::Lifetime] = sizeof(L"Lifetime");
+    particleBufferNames[(int)ParticleBufferTypes::Color] = sizeof(L"Color");
+
 	auto fnGetRandomNumber = [&]() -> float
 	{
 		auto dist = std::uniform_real_distribution<float>{};
@@ -185,16 +198,20 @@ UINT DX12Particles::CreateParticleBuffers(ParticleBuffers& UploadBuffers)
 	};
 
     UINT PrecreatedParticleCount = 0;
-    particlePositions.resize(ParticleBufferSize);
-    particleScales.resize(ParticleBufferSize);
-    particleVelocities.resize(ParticleBufferSize);
-    particleRotations.resize(ParticleBufferSize);
-    particleLifetimes.resize(ParticleBufferSize);
-    particleColors.resize(ParticleBufferSize);
+    for(int iBuffer = 0; iBuffer < (int)ParticleBufferTypes::Count; iBuffer++)
+    {
+        particleData[iBuffer].resize(ParticleBufferSize * particleBufferSizes[iBuffer]);
+    }
 
     UINT nParticlesPerRow = (UINT)ceil(sqrt((float)ParticleBufferSize));
-
     XMFLOAT4 colors[] = { XMFLOAT4(1, 0, 0, 1), XMFLOAT4(0, 1, 0, 1), XMFLOAT4(0, 0, 1, 1), XMFLOAT4(1, 0, 1, 1), XMFLOAT4(1, 1, 0, 1), XMFLOAT4(0, 1, 1, 1) };
+
+    XMFLOAT2* particlePositions = reinterpret_cast<XMFLOAT2*>(particleData[(int)ParticleBufferTypes::Position].data());
+    XMFLOAT2* particleScales = reinterpret_cast<XMFLOAT2*>(particleData[(int)ParticleBufferTypes::Scale].data());
+    XMFLOAT2* particleVelocities = reinterpret_cast<XMFLOAT2*>(particleData[(int)ParticleBufferTypes::Velocity].data());
+    float* particleRotations = particleData[(int)ParticleBufferTypes::Rotation].data();
+    float* particleLifetimes = particleData[(int)ParticleBufferTypes::Lifetime].data();
+    XMFLOAT4* particleColors = reinterpret_cast<XMFLOAT4*>(particleData[(int)ParticleBufferTypes::Color].data());
 
     for(UINT i = 0; i < ParticleBufferSize; i++)
     {
@@ -220,7 +237,7 @@ UINT DX12Particles::CreateParticleBuffers(ParticleBuffers& UploadBuffers)
 
         PrecreatedParticleCount++;
     }
-    
+
     // One extra loop for the upload buffers
     for (int i = 0; i < FrameCount + 1; i++)
     {
@@ -252,188 +269,70 @@ UINT DX12Particles::CreateParticleBuffers(ParticleBuffers& UploadBuffers)
             startingState = D3D12_RESOURCE_STATE_COPY_DEST;
         } 
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(heapType),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(sizeof(XMFLOAT2) * ParticleBufferSize, resourceFlags),
-            startingState,
-            nullptr,
-            IID_PPV_ARGS(&currentParticleBuffers->m_PositionBuffer)
-        ));
-        SetNameIndexed(currentParticleBuffers->m_PositionBuffer.Get(), L"PositionBuffer", i);
-
-        ThrowIfFailed(m_device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(heapType),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(sizeof(XMFLOAT2) * ParticleBufferSize, resourceFlags),
-            startingState,
-            nullptr,
-            IID_PPV_ARGS(&currentParticleBuffers->m_ScaleBuffer)
-        ));
-        SetNameIndexed(currentParticleBuffers->m_ScaleBuffer.Get(), L"ScaleBuffer", i);
-
-        ThrowIfFailed(m_device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(heapType),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(sizeof(XMFLOAT2) * ParticleBufferSize, resourceFlags),
-            startingState,
-            nullptr,
-            IID_PPV_ARGS(&currentParticleBuffers->m_VelocityBuffer)
-        ));
-        SetNameIndexed(currentParticleBuffers->m_VelocityBuffer.Get(), L"VelocityBuffer", i);
-
-        ThrowIfFailed(m_device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(heapType),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(sizeof(float) * ParticleBufferSize, resourceFlags),
-            startingState,
-            nullptr,
-            IID_PPV_ARGS(&currentParticleBuffers->m_LifetimeBuffer)
-        ));
-        SetNameIndexed(currentParticleBuffers->m_LifetimeBuffer.Get(), L"LifetimeBuffer", i);
-
-        ThrowIfFailed(m_device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(heapType),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(sizeof(float) * ParticleBufferSize, resourceFlags),
-            startingState,
-            nullptr,
-            IID_PPV_ARGS(&currentParticleBuffers->m_RotationBuffer)
-        ));
-        SetNameIndexed(currentParticleBuffers->m_RotationBuffer.Get(), L"RotationBuffer", i);
-
-        ThrowIfFailed(m_device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(heapType),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(sizeof(XMFLOAT4) * ParticleBufferSize, resourceFlags),
-            startingState,
-            nullptr,
-            IID_PPV_ARGS(&currentParticleBuffers->m_ColorBuffer)
-        ));
-        SetNameIndexed(currentParticleBuffers->m_ColorBuffer.Get(), L"ColorBuffer", i);
+        for (int iBuffer = 0; iBuffer < (int)ParticleBufferTypes::Count; iBuffer++)
+        {
+            auto&& buffer = currentParticleBuffers->Buffers[iBuffer];
+            auto bufferSize = particleBufferSizes[iBuffer];
+            auto& bufferName = particleBufferNames[iBuffer];
+            ThrowIfFailed(m_device->CreateCommittedResource(
+                &CD3DX12_HEAP_PROPERTIES(heapType),
+                D3D12_HEAP_FLAG_NONE,
+                &CD3DX12_RESOURCE_DESC::Buffer(bufferSize * ParticleBufferSize, resourceFlags),
+                startingState,
+                nullptr,
+                IID_PPV_ARGS(&buffer)
+            ));
+            SetNameIndexed(buffer.Get(), bufferName.c_str(), i);
+        }
     }
-
+    for (int iBuffer = 0; iBuffer < (int)ParticleBufferTypes::Count; iBuffer++)
     {
-        D3D12_SUBRESOURCE_DATA particleSubresourceData;
-        particleSubresourceData.pData = reinterpret_cast<void*>(particlePositions.data());
-        particleSubresourceData.SlicePitch = sizeof(XMFLOAT2) * ParticleBufferSize;
-        particleSubresourceData.RowPitch = particleSubresourceData.SlicePitch;
-        UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[1].m_PositionBuffer.Get(), UploadBuffers.m_PositionBuffer.Get(), 0, 0, 1, &particleSubresourceData);
-    }
-    {
-        D3D12_SUBRESOURCE_DATA particleSubresourceData;
-        particleSubresourceData.pData = reinterpret_cast<void*>(particleScales.data());
-        particleSubresourceData.SlicePitch = sizeof(XMFLOAT2) * ParticleBufferSize;
-        particleSubresourceData.RowPitch = particleSubresourceData.SlicePitch;
-        UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[1].m_ScaleBuffer.Get(), UploadBuffers.m_ScaleBuffer.Get(), 0, 0, 1, &particleSubresourceData);
-    }
-    {
-        D3D12_SUBRESOURCE_DATA particleSubresourceData;
-        particleSubresourceData.pData = reinterpret_cast<void*>(particleVelocities.data());
-        particleSubresourceData.SlicePitch = sizeof(XMFLOAT2) * ParticleBufferSize;
-        particleSubresourceData.RowPitch = particleSubresourceData.SlicePitch;
-        UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[1].m_VelocityBuffer.Get(), UploadBuffers.m_VelocityBuffer.Get(), 0, 0, 1, &particleSubresourceData);
-    }
-    {
-        D3D12_SUBRESOURCE_DATA particleSubresourceData;
-        particleSubresourceData.pData = reinterpret_cast<void*>(particleRotations.data());
-        particleSubresourceData.SlicePitch = sizeof(float) * ParticleBufferSize;
-        particleSubresourceData.RowPitch = particleSubresourceData.SlicePitch;
-        UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[1].m_RotationBuffer.Get(), UploadBuffers.m_RotationBuffer.Get(), 0, 0, 1, &particleSubresourceData);
-    }
-    {
-        D3D12_SUBRESOURCE_DATA particleSubresourceData;
-        particleSubresourceData.pData = reinterpret_cast<void*>(particleLifetimes.data());
-        particleSubresourceData.SlicePitch = sizeof(float) * ParticleBufferSize;
-        particleSubresourceData.RowPitch = particleSubresourceData.SlicePitch;
-        UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[1].m_LifetimeBuffer.Get(), UploadBuffers.m_LifetimeBuffer.Get(), 0, 0, 1, &particleSubresourceData);
-    }
-    {
-        D3D12_SUBRESOURCE_DATA particleSubresourceData;
-        particleSubresourceData.pData = reinterpret_cast<void*>(particleColors.data());
-        particleSubresourceData.SlicePitch = sizeof(XMFLOAT4) * ParticleBufferSize;
-        particleSubresourceData.RowPitch = particleSubresourceData.SlicePitch;
-        UpdateSubresources<1>(m_commandList.Get(), m_particleBuffers[1].m_ColorBuffer.Get(), UploadBuffers.m_ColorBuffer.Get(), 0, 0, 1, &particleSubresourceData);
-    }
+        auto&& buffer = m_particleBuffers[1].Buffers[iBuffer];
+        auto bufferSize = particleBufferSizes[iBuffer];
 
-
-    // @TODO Set the deadlist's counter to the initialized particles
+        D3D12_SUBRESOURCE_DATA particleSubresourceData;
+        particleSubresourceData.pData = reinterpret_cast<void*>(particleData[iBuffer].data());
+        particleSubresourceData.SlicePitch = bufferSize * ParticleBufferSize;
+        particleSubresourceData.RowPitch = particleSubresourceData.SlicePitch;
+        UpdateSubresources<1>(m_commandList.Get(), buffer.Get(), UploadBuffers.Buffers[iBuffer].Get(), 0, 0, 1, &particleSubresourceData);
+    }
     
+    // @TODO Set the deadlist's counter to the initialized particles
     for (int i = 0; i < FrameCount; i++)
     {
         int nEnumOffsetPerFrame = (int)DescOffset::ParticlePositionSRV1 - (int)DescOffset::ParticlePositionSRV0;
         int nEnumOffset = nEnumOffsetPerFrame * i;
 
-        // Create a shader resource view
+        // Create a shader resource view and unordered access view for every buffer
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Format = DXGI_FORMAT_UNKNOWN;
         srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
         srvDesc.Buffer.FirstElement = 0;
         srvDesc.Buffer.NumElements = ParticleBufferSize;
-        srvDesc.Buffer.StructureByteStride = sizeof(XMFLOAT2);
         srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionSRV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateShaderResourceView(m_particleBuffers[i].m_PositionBuffer.Get(), &srvDesc, srvHandle);
-        }
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleScaleSRV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateShaderResourceView(m_particleBuffers[i].m_ScaleBuffer.Get(), &srvDesc, srvHandle);
-        }
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleVelocitySRV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateShaderResourceView(m_particleBuffers[i].m_VelocityBuffer.Get(), &srvDesc, srvHandle);
-        }
-        srvDesc.Buffer.StructureByteStride = sizeof(float);
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleRotationSRV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateShaderResourceView(m_particleBuffers[i].m_RotationBuffer.Get(), &srvDesc, srvHandle);
-        }
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleLifetimeSRV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateShaderResourceView(m_particleBuffers[i].m_LifetimeBuffer.Get(), &srvDesc, srvHandle);
-        }
-        srvDesc.Buffer.StructureByteStride = sizeof(XMFLOAT4);
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleColorSRV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateShaderResourceView(m_particleBuffers[i].m_ColorBuffer.Get(), &srvDesc, srvHandle);
-        }
 
         D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
         uavDesc.Format = DXGI_FORMAT_UNKNOWN;
         uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uavDesc.Buffer.FirstElement = 0;
         uavDesc.Buffer.NumElements = ParticleBufferSize;
-        uavDesc.Buffer.StructureByteStride = sizeof(XMFLOAT2);
         uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
 
+        for (int iBuffer = 0; iBuffer < (int)ParticleBufferTypes::Count; iBuffer++)
         {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionUAV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateUnorderedAccessView(m_particleBuffers[i].m_PositionBuffer.Get(), nullptr, &uavDesc, uavHandle);
-        }
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleScaleUAV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateUnorderedAccessView(m_particleBuffers[i].m_ScaleBuffer.Get(), nullptr, &uavDesc, uavHandle);
-        }
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleVelocityUAV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateUnorderedAccessView(m_particleBuffers[i].m_VelocityBuffer.Get(), nullptr, &uavDesc, uavHandle);
-        }
-        uavDesc.Buffer.StructureByteStride = sizeof(float);
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleRotationUAV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateUnorderedAccessView(m_particleBuffers[i].m_RotationBuffer.Get(), nullptr, &uavDesc, uavHandle);
-        }
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleLifetimeUAV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateUnorderedAccessView(m_particleBuffers[i].m_LifetimeBuffer.Get(), nullptr, &uavDesc, uavHandle);
-        }
-        uavDesc.Buffer.StructureByteStride = sizeof(XMFLOAT4);
-        {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleColorUAV0 + nEnumOffset, m_cbvSrvDescriptorSize);
-            m_device->CreateUnorderedAccessView(m_particleBuffers[i].m_ColorBuffer.Get(), nullptr, &uavDesc, uavHandle);
+            auto&& buffer = m_particleBuffers[i].Buffers[iBuffer];
+            auto bufferSize = particleBufferSizes[iBuffer];
+
+            srvDesc.Buffer.StructureByteStride = bufferSize;
+            uavDesc.Buffer.StructureByteStride = bufferSize;
+
+            int descriptorOffset = (int)DescOffset::ParticlePositionSRV0 + nEnumOffset + iBuffer;
+            CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), descriptorOffset, m_cbvSrvDescriptorSize);
+            m_device->CreateShaderResourceView(buffer.Get(), &srvDesc, srvHandle);
+
+            CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionUAV0 + nEnumOffset + iBuffer, m_cbvSrvDescriptorSize);
+            m_device->CreateUnorderedAccessView(buffer.Get(), nullptr, &uavDesc, uavHandle);
         }
     }
 
@@ -462,21 +361,24 @@ void DX12Particles::LoadAssets()
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
 
+        static const int maxRangeCount = 5;
+        UINT nRangeCount = 0;
+        std::array<CD3DX12_DESCRIPTOR_RANGE1, maxRangeCount> ranges;
+        ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+        ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
+        //ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 10, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
+        ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, particleBufferCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
+        ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, particleBufferCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
 
-        CD3DX12_DESCRIPTOR_RANGE1 ranges[4];
-        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-        ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, particleBufferCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
-        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, particleBufferCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
-
-        CD3DX12_ROOT_PARAMETER1 rootParameters[4];
-        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
-        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
-        rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);
-        rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);
+        nRangeCount = 0;
+        std::array<CD3DX12_ROOT_PARAMETER1, maxRangeCount> rootParameters;
+        for(auto& range : ranges)
+        {
+            rootParameters[nRangeCount++].InitAsDescriptorTable(1, &range, D3D12_SHADER_VISIBILITY_ALL);
+        }
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
-        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+        rootSignatureDesc.Init_1_1(nRangeCount - 1, rootParameters.data(), 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
@@ -1294,7 +1196,7 @@ void DX12Particles::OnUpdate()
 
 void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBufferIndex)
 {
-#ifdef TILED_STUFF_CAN_HAPPEN
+#if 0
     ThrowIfFailed(m_commandAllocatorCompute->Reset());
     ThrowIfFailed(m_commandListCompute->Reset(m_commandAllocatorCompute.Get(), m_computePipelineStates[(int)ComputePass::Generate].Get()));
 
@@ -1304,57 +1206,71 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
     m_commandListCompute->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
 
     // The constant buffer view needs to be set even though we dont use it. The reason is that we specified it in the root signature.
-    m_commandListCompute->SetComputeRootDescriptorTable(0, CD3DX12_GPU_DESCRIPTOR_HANDLE(
-        m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::StaticConstantBuffer, m_cbvSrvDescriptorSize
-        ));
+    CD3DX12_GPU_DESCRIPTOR_HANDLE cbvStaticHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::StaticConstantBuffer, m_cbvSrvDescriptorSize);
+    m_commandListCompute->SetComputeRootDescriptorTable(0, cbvStaticHandle);
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::PerFrameConstantBuffer0 + readableBufferIndex, m_cbvSrvDescriptorSize);
-    m_commandListCompute->SetComputeRootDescriptorTable(3, cbvHandle);
+    m_commandListCompute->SetComputeRootDescriptorTable(1, cbvHandle);
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE counterHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::DeadListUAV, m_cbvSrvDescriptorSize);
-    m_commandListCompute->SetComputeRootDescriptorTable(4, counterHandle);
+    m_commandListCompute->SetComputeRootDescriptorTable(2, counterHandle);
 
     // Make sure the the read buffer can be read and the write buffer can be written to
-    m_commandListCompute->ResourceBarrier(1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[readableBufferIndex].Get(),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+    for (auto& buffer : m_particleBuffers[readableBufferIndex].Buffers)
+    {
+        m_commandListCompute->ResourceBarrier(1,
+            &CD3DX12_RESOURCE_BARRIER::Transition(buffer.Get(),
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+    }
 
-    m_commandListCompute->ResourceBarrier(1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[writableBufferIndex].Get(),
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+    for (auto& buffer : m_particleBuffers[writableBufferIndex].Buffers)
+    {
+        m_commandListCompute->ResourceBarrier(1,
+            &CD3DX12_RESOURCE_BARRIER::Transition(buffer.Get(),
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+    }
+
+    int descriptorOffsetPerFrame = (int)DescOffset::ParticlePositionSRV1 - (int)DescOffset::ParticlePositionSRV0;
+    int readDescriptorOffset = readableBufferIndex * descriptorOffsetPerFrame;
+    int writeDescriptorOffset = writableBufferIndex * descriptorOffsetPerFrame;
 
     {
-        CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleSRV0 + readableBufferIndex, m_cbvSrvDescriptorSize);
-        m_commandListCompute->SetComputeRootDescriptorTable(1, srvHandle);
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionSRV0 + readDescriptorOffset, m_cbvSrvDescriptorSize);
+        m_commandListCompute->SetComputeRootDescriptorTable(3, srvHandle);
 
-        CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleUAV0 + writableBufferIndex, m_cbvSrvDescriptorSize);
-        m_commandListCompute->SetComputeRootDescriptorTable(2, uavHandle);
+        CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionUAV0 + writeDescriptorOffset, m_cbvSrvDescriptorSize);
+        m_commandListCompute->SetComputeRootDescriptorTable(4, uavHandle);
     }
 
     m_commandListCompute->SetPipelineState(m_computePipelineStates[(int)ComputePass::Generate].Get());
     m_commandListCompute->Dispatch((UINT)ceilf((float)ParticleBufferSize / 1000), 1, 1);
 
     // After the generation part we swap the buffers so that the update pass doesn't override the emitted particles
+    for (auto& buffer : m_particleBuffers[readableBufferIndex].Buffers)
+    {
+        m_commandListCompute->ResourceBarrier(1,
+            &CD3DX12_RESOURCE_BARRIER::Transition(buffer.Get(),
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+    }
 
-    m_commandListCompute->ResourceBarrier(1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[readableBufferIndex].Get(),
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-
-    m_commandListCompute->ResourceBarrier(1,
-        &CD3DX12_RESOURCE_BARRIER::Transition(m_particleBuffers[writableBufferIndex].Get(),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+    for (auto& buffer : m_particleBuffers[writableBufferIndex].Buffers)
+    {
+        m_commandListCompute->ResourceBarrier(1,
+            &CD3DX12_RESOURCE_BARRIER::Transition(buffer.Get(),
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+    }
 
     std::swap(readableBufferIndex, writableBufferIndex);
 
     {
-        CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleSRV0 + readableBufferIndex, m_cbvSrvDescriptorSize);
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionSRV0 + readDescriptorOffset, m_cbvSrvDescriptorSize);
         m_commandListCompute->SetComputeRootDescriptorTable(1, srvHandle);
 
-        CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticleUAV0 + writableBufferIndex, m_cbvSrvDescriptorSize);
+        CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionUAV0 + writeDescriptorOffset, m_cbvSrvDescriptorSize);
         m_commandListCompute->SetComputeRootDescriptorTable(2, uavHandle);
     }
 
@@ -1378,6 +1294,7 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
 #endif
 
+#ifdef TILE_STUFF_CAN_HAPPEN
     if(m_RenderMode == RenderMode::TiledRasterization || m_RenderMode == RenderMode::Debug_TileOccupancy)
     {
         // Run the gather compute shader
@@ -1433,13 +1350,13 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
         //UINT startQueryIndex = m_frameIndex * queryCountPerFrame;
         //m_commandListCompute->ResolveQueryData(m_TimingQueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, startQueryIndex, queryCountPerFrame, m_TimingQueryResult.Get(), startQueryIndex * sizeof(UINT64));
     }
-
+#endif
 
     m_commandListCompute->Close();
 
     ID3D12CommandList* ppCommandLists[] = { m_commandListCompute.Get() };
     m_commandQueueCompute->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-#endif // TILED_STUFF_CAN_HAPPEN
+#endif
 }
 
 void DX12Particles::WaitForFence(bool waitOnCpu, bool bCompute)
@@ -1475,9 +1392,7 @@ void DX12Particles::WaitForFence(bool waitOnCpu, bool bCompute)
 
 void DX12Particles::DrawParticlesWithPrimitives(int readableBufferIndex)
 {
-#ifndef TILED_STUFF_CAN_HAPPEN
     readableBufferIndex = 1;
-#endif
 
     m_commandList->SetPipelineState(m_pipelineState.Get());
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
