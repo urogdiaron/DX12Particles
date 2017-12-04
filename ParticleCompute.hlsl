@@ -13,22 +13,19 @@ float GetRandomNumber(inout uint seed)
     return float(seed) * (1.0 / 4294967296.0);
 }
 
-PosVelo GenerateNewParticle(uint rndSeed)
+void GenerateNewParticle(uint rndSeed, out Particle particle)
 {
-    PosVelo particle;
-
-    particle.pos = float3(0, 0, 0);
+    particle.pos = float2(0, 0);
     particle.timeLeft = -1.0f;
-    particle.velocity = float4(GetRandomNumber(rndSeed) * 2.0f - 1.0f, GetRandomNumber(rndSeed) * 2.0f - 1.0f, 0, 0);
+    particle.velocity = float2(GetRandomNumber(rndSeed) * 2.0f - 1.0f, GetRandomNumber(rndSeed) * 2.0f - 1.0f);
     particle.color = float4(GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), GetRandomNumber(rndSeed), 0.02f);
     //particle.color = saturate(particle.color * 3);
-	particle.scale = float4(0.01, 0.01, 0, 0);
+    particle.scale = float2(0.01, 0.01);
 #ifdef DISABLE_ROTATION
-	particle.rotate = float4(0, 0, 0, 0);
+    particle.rotate = 0;
 #else
-    particle.rotate = float4(GetRandomNumber(rndSeed), 0, 0, 0);
+    particle.rotate = GetRandomNumber(rndSeed);
 #endif
-    return particle;
 }
 
 [numthreads(1000, 1, 1)]
@@ -42,7 +39,15 @@ void CSGenerate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 
             //There's still space left for a new particle. Mark one for creation
             uint nLastParticle = g_deadList[g_nParticleBufferSize - nPrevParticleCount];
             g_deadList[g_nParticleBufferSize - nPrevParticleCount] = 9;
-            g_bufPosVeloOut[nLastParticle] = GenerateNewParticle(g_nRandomSeed + DTid.x);
+
+            Particle newParticle;
+            GenerateNewParticle(g_nRandomSeed + DTid.x, newParticle);
+            g_particlePositionsOut[nLastParticle] = newParticle.pos;
+            g_particleScalesOut[nLastParticle] = newParticle.scale;
+            g_particleVelocitiesOut[nLastParticle] = newParticle.velocity;
+            g_particleRotationsOut[nLastParticle] = newParticle.rotate;
+            g_particleLifetimesOut[nLastParticle] = newParticle.timeLeft;
+            g_particleColorsOut[nLastParticle] = newParticle.color;
         }
         else
         {
@@ -58,13 +63,26 @@ void CSUpdate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GT
     if (DTid.x >= g_nParticleBufferSize)
     {
         return;
-    }    
+    }
 
-    PosVelo particle = g_bufPosVelo[DTid.x];
+    Particle particle;
+    
+    particle.pos = g_particlePositions[DTid.x];
+    particle.scale = g_particleScales[DTid.x];
+    particle.velocity = g_particleVelocities[DTid.x];
+    particle.rotate = g_particleRotations[DTid.x];
+    particle.timeLeft = g_particleLifetimes[DTid.x];
+    particle.color = g_particleColors[DTid.x];
 
     if (particle.timeLeft == 0.0)
     {
-        g_bufPosVeloOut[DTid.x] = particle;
+        g_particlePositionsOut[DTid.x] = particle.pos;
+        g_particleScalesOut[DTid.x] = particle.scale;
+        g_particleVelocitiesOut[DTid.x] = particle.velocity;
+        g_particleRotationsOut[DTid.x] = particle.rotate;
+        g_particleLifetimesOut[DTid.x] = particle.timeLeft;
+        g_particleColorsOut[DTid.x] = particle.color;
+
         return;
     }
 
@@ -75,9 +93,9 @@ void CSUpdate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GT
         particle.timeLeft = max(0.0, particle.timeLeft);
     }
 
-    particle.pos.xyz += particle.velocity.xyz * g_fElapsedTime;
+    particle.pos += particle.velocity * g_fElapsedTime;
 #ifndef DISABLE_ROTATION
-    particle.rotate.x += g_fElapsedTime * 0.5f;
+    particle.rotate += g_fElapsedTime * 0.5f;
 #endif
 
     if (particle.pos.x < -1)
@@ -108,7 +126,12 @@ void CSUpdate(uint3 Gid : SV_GroupID, uint3 DTid : SV_DispatchThreadID, uint3 GT
         g_deadList[g_nParticleBufferSize - nNewParticleCount] = DTid.x;
     }
 
-    g_bufPosVeloOut[DTid.x] = particle;
+    g_particlePositionsOut[DTid.x] = particle.pos;
+    g_particleScalesOut[DTid.x] = particle.scale;
+    g_particleVelocitiesOut[DTid.x] = particle.velocity;
+    g_particleRotationsOut[DTid.x] = particle.rotate;
+    g_particleLifetimesOut[DTid.x] = particle.timeLeft;
+    g_particleColorsOut[DTid.x] = particle.color;
 }
 
 [numthreads(1000, 1, 1)]

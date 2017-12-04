@@ -17,6 +17,16 @@ globallycoherent RWStructuredBuffer<uint> g_offsetCounter : register(u11);
 RWTexture2D<uint2> g_offsetPerTiles                       : register(u12);
 RWStructuredBuffer<uint> g_particleIndicesForTiles        : register(u13);
 
+struct Particle
+{
+    float2 pos;
+    float2 scale;
+    float2 velocity;
+    float  rotate;
+    float  timeLeft;
+    float4 color;
+};
+
 cbuffer globals : register(b0)
 {
 	float g_fAspectRatio;

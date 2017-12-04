@@ -177,12 +177,12 @@ UINT DX12Particles::CreateParticleBuffers(ParticleBuffers& UploadBuffers)
     particleBufferSizes[(int)ParticleBufferTypes::Lifetime] = sizeof(float);
     particleBufferSizes[(int)ParticleBufferTypes::Color] = sizeof(XMFLOAT4);
 
-    particleBufferNames[(int)ParticleBufferTypes::Position] = sizeof(L"Position");
-    particleBufferNames[(int)ParticleBufferTypes::Scale] = sizeof(L"Scale");
-    particleBufferNames[(int)ParticleBufferTypes::Velocity] = sizeof(L"Velocity");
-    particleBufferNames[(int)ParticleBufferTypes::Rotation] = sizeof(L"Rotation");
-    particleBufferNames[(int)ParticleBufferTypes::Lifetime] = sizeof(L"Lifetime");
-    particleBufferNames[(int)ParticleBufferTypes::Color] = sizeof(L"Color");
+    particleBufferNames[(int)ParticleBufferTypes::Position] = (L"Position");
+    particleBufferNames[(int)ParticleBufferTypes::Scale] = (L"Scale");
+    particleBufferNames[(int)ParticleBufferTypes::Velocity] = (L"Velocity");
+    particleBufferNames[(int)ParticleBufferTypes::Rotation] = (L"Rotation");
+    particleBufferNames[(int)ParticleBufferTypes::Lifetime] = (L"Lifetime");
+    particleBufferNames[(int)ParticleBufferTypes::Color] = (L"Color");
 
 	auto fnGetRandomNumber = [&]() -> float
 	{
@@ -366,7 +366,7 @@ void DX12Particles::LoadAssets()
         std::array<CD3DX12_DESCRIPTOR_RANGE1, maxRangeCount> ranges;
         ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
         ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
-        //ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 10, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
+        ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 10, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
         ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, particleBufferCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);
         ranges[nRangeCount++].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, particleBufferCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE);
 
@@ -378,7 +378,7 @@ void DX12Particles::LoadAssets()
         }
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
-        rootSignatureDesc.Init_1_1(nRangeCount - 1, rootParameters.data(), 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+        rootSignatureDesc.Init_1_1(nRangeCount, rootParameters.data(), 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
@@ -540,6 +540,7 @@ void DX12Particles::LoadAssets()
         ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineStateDebug)));
         NAME_D3D12_OBJECT(m_pipelineStateDebug);
     }
+#endif
 
     //Create compute PSO
     {
@@ -584,7 +585,6 @@ void DX12Particles::LoadAssets()
             NAME_D3D12_OBJECT(m_computePipelineStates[i]);
         }
     }
-#endif
 
     ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
     NAME_D3D12_OBJECT(m_commandList);
@@ -1196,7 +1196,6 @@ void DX12Particles::OnUpdate()
 
 void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBufferIndex)
 {
-#if 0
     ThrowIfFailed(m_commandAllocatorCompute->Reset());
     ThrowIfFailed(m_commandListCompute->Reset(m_commandAllocatorCompute.Get(), m_computePipelineStates[(int)ComputePass::Generate].Get()));
 
@@ -1245,7 +1244,7 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
     }
 
     m_commandListCompute->SetPipelineState(m_computePipelineStates[(int)ComputePass::Generate].Get());
-    m_commandListCompute->Dispatch((UINT)ceilf((float)ParticleBufferSize / 1000), 1, 1);
+    //m_commandListCompute->Dispatch((UINT)ceilf((float)ParticleBufferSize / 1000), 1, 1);
 
     // After the generation part we swap the buffers so that the update pass doesn't override the emitted particles
     for (auto& buffer : m_particleBuffers[readableBufferIndex].Buffers)
@@ -1265,13 +1264,15 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
     }
 
     std::swap(readableBufferIndex, writableBufferIndex);
+    readDescriptorOffset = readableBufferIndex * descriptorOffsetPerFrame;
+    writeDescriptorOffset = writableBufferIndex * descriptorOffsetPerFrame;
 
     {
         CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionSRV0 + readDescriptorOffset, m_cbvSrvDescriptorSize);
-        m_commandListCompute->SetComputeRootDescriptorTable(1, srvHandle);
+        m_commandListCompute->SetComputeRootDescriptorTable(3, srvHandle);
 
         CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionUAV0 + writeDescriptorOffset, m_cbvSrvDescriptorSize);
-        m_commandListCompute->SetComputeRootDescriptorTable(2, uavHandle);
+        m_commandListCompute->SetComputeRootDescriptorTable(4, uavHandle);
     }
 
     m_commandListCompute->SetPipelineState(m_computePipelineStates[(int)ComputePass::Move].Get());
@@ -1356,7 +1357,6 @@ void DX12Particles::RunComputeShader(int readableBufferIndex, int writableBuffer
 
     ID3D12CommandList* ppCommandLists[] = { m_commandListCompute.Get() };
     m_commandQueueCompute->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-#endif
 }
 
 void DX12Particles::WaitForFence(bool waitOnCpu, bool bCompute)
@@ -1392,8 +1392,6 @@ void DX12Particles::WaitForFence(bool waitOnCpu, bool bCompute)
 
 void DX12Particles::DrawParticlesWithPrimitives(int readableBufferIndex)
 {
-    readableBufferIndex = 1;
-
     m_commandList->SetPipelineState(m_pipelineState.Get());
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
@@ -1406,14 +1404,17 @@ void DX12Particles::DrawParticlesWithPrimitives(int readableBufferIndex)
     CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::PerFrameConstantBuffer0 + readableBufferIndex, m_cbvSrvDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(1, cbvHandle);
 
+    CD3DX12_GPU_DESCRIPTOR_HANDLE deadlistHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::DeadListUAV, m_cbvSrvDescriptorSize);
+    m_commandList->SetGraphicsRootDescriptorTable(2, deadlistHandle);
+
     int descriptorOffsetPerFrame = (int)DescOffset::ParticlePositionSRV1 - (int)DescOffset::ParticlePositionSRV0;
     int currentDescriptorOffset = readableBufferIndex * descriptorOffsetPerFrame;
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionSRV0 + currentDescriptorOffset, m_cbvSrvDescriptorSize);
-    m_commandList->SetGraphicsRootDescriptorTable(2, srvHandle);
+    m_commandList->SetGraphicsRootDescriptorTable(3, srvHandle);
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE uavHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), (int)DescOffset::ParticlePositionUAV0, m_cbvSrvDescriptorSize);
-    m_commandList->SetGraphicsRootDescriptorTable(3, uavHandle);
+    m_commandList->SetGraphicsRootDescriptorTable(4, uavHandle);
 
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
@@ -1513,10 +1514,7 @@ void DX12Particles::OnRender()
     // Present and update the frame index for the next frame.
     ThrowIfFailed(m_swapChain->Present(0, 0));
     WaitForFence(true, false);
-
-#ifdef TILED_STUFF_CAN_HAPPEN
     WaitForFence(true, true);
-#endif
 
 #ifdef DEBUG_PARTICLE_DATA
     DeadListBufferData* deadListBufferData;
